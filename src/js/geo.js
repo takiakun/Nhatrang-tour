@@ -215,7 +215,7 @@ function buildGrid(cell){
 function hex3(h){ return [parseInt(h.substr(1, 2), 16), parseInt(h.substr(3, 2), 16), parseInt(h.substr(5, 2), 16)]; }
 var PAL = { deep:hex3('#2d6a83'), shoal:hex3('#b7d1a9'), wet:hex3('#cbb88a'), sand:hex3('#eddcab'), sand2:hex3('#e0cb95'),
   grass:hex3('#a7c36f'), grass2:hex3('#86b25b'), scrub:hex3('#b2aa6c'), forest:hex3('#5b9046'), forest2:hex3('#3b7335'), rock:hex3('#9e937f'), rock2:hex3('#bcb19c'),
-  street:hex3('#b9b3a7'), lane:hex3('#cdc3a2'), urban:hex3('#d2ccbe'), lawn:hex3('#94c867'), path:hex3('#ece4d0'), bund:hex3('#c4ba8b'), dike:hex3('#c8b98e'), village:hex3('#b7b27c') };
+  street:hex3('#96989a'), walk:hex3('#dcd5c6'), curb:hex3('#a59e90'), mark:hex3('#f4f1e8'), lane:hex3('#cdc3a2'), urban:hex3('#d2ccbe'), lawn:hex3('#94c867'), path:hex3('#ece4d0'), bund:hex3('#c4ba8b'), dike:hex3('#c8b98e'), village:hex3('#b7b27c') };
 var URB = ['#d6d0c3','#cbc4b5','#ddd7cb','#c2c7b4','#cdbfaa','#d9d3c4','#b8c2a8','#c9c9c2'].map(hex3);
 var RICE = ['#9cc95a','#93c257','#a6cb60','#8fbd55','#b2cd66','#9fc45c','#c4c56c','#87b85a','#a9c463'].map(hex3), FLOOD = hex3('#8fb3a6'), FALLOW = hex3('#b9ab78');
 var PONDC = ['#6fa2a6','#5f969b','#7aab9d','#86b0a8','#5a8f99'].map(hex3);
@@ -235,7 +235,14 @@ function groundColor(x, z, hh, nn, zn, sl, o){
     var fu = u / D.su, fv = v / D.sv, iu = Math.floor(fu), iv = Math.floor(fv); fu = (fu - iu) * D.su; fv = (fv - iv) * D.sv;
     var du = Math.min(fu, D.su - fu), dv = Math.min(fv, D.sv - fv), hw = D.sw * 0.5;
     if (D.style === 'city' || D.style === 'suburb'){
-      if (du < hw || dv < hw){ setc(PAL.street, o); return; }
+      // Đường phố: lòng đường nhựa, vạch giữa nét đứt, vạch qua đường ở đầu giao lộ, vỉa hè có bó vỉa.
+      if (du < hw || dv < hw){ setc(PAL.street, o);
+        if (du < hw && dv < hw) return;
+        var ac = du < hw ? du : dv, al = du < hw ? fv : fu, xd = du < hw ? dv : du;
+        if (xd < hw + 0.07){ if (((du < hw ? u : v) * 22 & 1) === 0 && ac < hw - 0.015) setc(PAL.mark, o); return; }
+        if (ac < 0.014 && (al * 6 & 1) === 0) setc(PAL.mark, o);
+        return; }
+      if (du < hw + 0.034 || dv < hw + 0.034){ setc((du < hw + 0.008 || dv < hw + 0.008) ? PAL.curb : PAL.walk, o); return; }
       var c = URB[(ih(Math.floor(u / 0.3) + D.i * 7777, Math.floor(v / 0.3)) * URB.length) | 0];
       if (D.style === 'suburb') mixc(o, c, 0.5, o); else mixc(PAL.urban, c, 0.75, o);
     } else if (D.style === 'village'){
@@ -301,12 +308,13 @@ function genBuildings(G, MK, dens, extraTowers){
     if (hi - lo > 0.3 || lo < 0.3 || hi > 2.6) return false;
     return lo - 0.02;
   }
-  function tube(D, u, v, w, d, rot90, fl){ var p = toWorld(D, u, v), ang = D.ang + (rot90 ? Math.PI / 2 : 0), y = ok(D, p[0], p[1], w / 2, d / 2, ang); if (y === false) return;
+  // fc: mặt tiền quay về +z (1) hay −z (−1) của khung toạ độ riêng căn nhà, tức là quay ra đường
+  function tube(D, u, v, w, d, rot90, fl, fc){ var p = toWorld(D, u, v), ang = D.ang + (rot90 ? Math.PI / 2 : 0), y = ok(D, p[0], p[1], w / 2, d / 2, ang); if (y === false) return;
     var f = TUBE_F[nearestIdx(TUBE_F, fl)];
-    out.tubes.push({ x:p[0], z:p[1], y:y, w:w, d:d, h:f * FLOOR, r:-ang, f:f, c:TUBE_C[(rb() * TUBE_C.length) | 0] });
+    out.tubes.push({ x:p[0], z:p[1], y:y, w:w, d:d, h:f * FLOOR, r:-ang, fc:fc || 1, f:f, c:TUBE_C[(rb() * TUBE_C.length) | 0] });
     if (rb() < 0.45) out.tanks.push({ x:p[0] + (rb() - 0.5) * w * 0.4, z:p[1] + (rb() - 0.5) * d * 0.5, y:y + f * FLOOR, r:-ang }); }
-  function villa(D, u, v, w, d, fl, roofed, wall, roofC){ var p = toWorld(D, u, v), y = ok(D, p[0], p[1], w / 2, d / 2, D.ang); if (y === false) return;
-    out.villas.push({ x:p[0], z:p[1], y:y, w:w, d:d, h:fl * FLOOR * 0.95, r:-D.ang, roof:roofed, c:wall || VILLA_C[(rb() * VILLA_C.length) | 0], rc:roofC || ROOF_C[(rb() * ROOF_C.length) | 0] }); }
+  function villa(D, u, v, w, d, fl, roofed, wall, roofC, fc){ var p = toWorld(D, u, v), y = ok(D, p[0], p[1], w / 2, d / 2, D.ang); if (y === false) return;
+    out.villas.push({ x:p[0], z:p[1], y:y, w:w, d:d, h:fl * FLOOR * 0.95, r:-D.ang, fc:fc || 1, roof:roofed, c:wall || VILLA_C[(rb() * VILLA_C.length) | 0], rc:roofC || ROOF_C[(rb() * ROOF_C.length) | 0] }); }
   function tower(D, u, v, w, d, fl, kind){ var p = toWorld(D, u, v), y = ok(D, p[0], p[1], w / 2, d / 2, D.ang); if (y === false) return;
     var arr = kind === 'mid' ? MID_F : TOWER_F, f = arr[nearestIdx(arr, fl)];
     (kind === 'mid' ? out.mids : out.towers).push({ x:p[0], z:p[1], y:y, w:w, d:d, h:f * FLOOR, r:-D.ang, f:f, c:TOWER_C[(rb() * TOWER_C.length) | 0], pool: kind !== 'mid' && rb() < 0.35 }); }
@@ -328,10 +336,10 @@ function genBuildings(G, MK, dens, extraTowers){
         }
         var maxd = Math.min(0.62, (v1 - v0) / 2 - 0.02), boost = (D.id === 'center' || D.id === 'oldq') ? 0.6 : 0;
         [[v0, 1], [v1, -1]].forEach(function(e){ var u = u0; while (u < u1 - 0.14){ var lw = R(0.15, 0.26); if (u + lw > u1) break; var dep = Math.min(R(0.36, 0.62), maxd);
-            if (rb() < keep) tube(D, u + lw / 2, e[0] + e[1] * dep / 2, lw - 0.014, dep, false, 2 + Math.floor(Math.pow(rb(), 1.6) * 5 + boost * rb()));
+            if (rb() < keep) tube(D, u + lw / 2, e[0] + e[1] * dep / 2, lw - 0.014, dep, false, 2 + Math.floor(Math.pow(rb(), 1.6) * 5 + boost * rb()), -e[1]);
             u += lw; } });
         [[u0, 1], [u1, -1]].forEach(function(e){ var v = v0 + maxd + 0.02; while (v < v1 - maxd - 0.14){ var lw = R(0.15, 0.26); if (v + lw > v1 - maxd) break; var dep = Math.min(R(0.36, 0.6), (u1 - u0) / 2 - 0.02);
-            if (rb() < keep) tube(D, e[0] + e[1] * dep / 2, v + lw / 2, lw - 0.014, dep, true, 2 + Math.floor(Math.pow(rb(), 1.6) * 5 + boost * rb()));
+            if (rb() < keep) tube(D, e[0] + e[1] * dep / 2, v + lw / 2, lw - 0.014, dep, true, 2 + Math.floor(Math.pow(rb(), 1.6) * 5 + boost * rb()), e[1]);
             v += lw; } });
         var iw = (u1 - u0) - 1.34, idp = (v1 - v0) - 1.34;
         if (iw > 0.35 && idp > 0.3){ var r = rb(), ic = toWorld(D, (u0 + u1) / 2, (v0 + v1) / 2);
@@ -339,17 +347,17 @@ function genBuildings(G, MK, dens, extraTowers){
           else if (r < 0.85) for (var q = 0; q < 3; q++) out.yard.push({ x:ic[0] + (rb() - 0.5) * iw, z:ic[1] + (rb() - 0.5) * idp }); }
       } else if (D.style === 'suburb'){
         [[v0, 1], [v1, -1]].forEach(function(e){ var u = u0; while (u < u1 - 0.3){ var lw = R(0.3, 0.5); if (rb() < keep){ var dep = R(0.3, 0.45);
-              if (rb() < 0.55) villa(D, u + lw / 2, e[0] + e[1] * (dep / 2 + 0.05), lw - 0.08, dep, 1 + Math.floor(rb() * 2.4), rb() < 0.7);
-              else tube(D, u + lw / 2, e[0] + e[1] * dep / 2, Math.min(0.26, lw - 0.05), dep + 0.1, false, 2 + Math.floor(rb() * 3)); }
+              if (rb() < 0.55) villa(D, u + lw / 2, e[0] + e[1] * (dep / 2 + 0.05), lw - 0.08, dep, 1 + Math.floor(rb() * 2.4), rb() < 0.7, null, null, -e[1]);
+              else tube(D, u + lw / 2, e[0] + e[1] * dep / 2, Math.min(0.26, lw - 0.05), dep + 0.1, false, 2 + Math.floor(rb() * 3), -e[1]); }
             u += lw; } });
         var yc = toWorld(D, (u0 + u1) / 2, (v0 + v1) / 2); for (var y2 = 0; y2 < 3; y2++) out.yard.push({ x:yc[0] + (rb() - 0.5) * 2, z:yc[1] + (rb() - 0.5) * 1.5 });
       } else if (D.style === 'village'){
         var cnt = Math.round((u1 - u0) * (v1 - v0) * 1.1 * keep);
         for (var c = 0; c < cnt; c++){ var uu = R(u0 + 0.2, u1 - 0.2), vv = R(v0 + 0.2, v1 - 0.2);
-          if (rb() < 0.3) tube(D, uu, vv, R(0.18, 0.24), R(0.32, 0.45), false, 2);
-          else villa(D, uu, vv, R(0.2, 0.32), R(0.24, 0.4), 1, true); }
+          if (rb() < 0.3) tube(D, uu, vv, R(0.18, 0.24), R(0.32, 0.45), false, 2, ih(uu * 31, vv * 17) < 0.5 ? 1 : -1);
+          else villa(D, uu, vv, R(0.2, 0.32), R(0.24, 0.4), 1, true, null, null, ih(uu * 31, vv * 17) < 0.5 ? 1 : -1); }
       } else {
-        [[v0, 1], [v1, -1]].forEach(function(e){ var u = u0; while (u < u1 - 0.3){ if (rb() < keep) villa(D, u + 0.22, e[0] + e[1] * 0.3, 0.3, 0.3, 1, true, '#fbf8f1', rb() < 0.5 ? '#5b4636' : '#2f5d62'); u += R(0.55, 0.75); } });
+        [[v0, 1], [v1, -1]].forEach(function(e){ var u = u0; while (u < u1 - 0.3){ if (rb() < keep) villa(D, u + 0.22, e[0] + e[1] * 0.3, 0.3, 0.3, 1, true, '#fbf8f1', rb() < 0.5 ? '#5b4636' : '#2f5d62', -e[1]); u += R(0.55, 0.75); } });
       }
     }
   });

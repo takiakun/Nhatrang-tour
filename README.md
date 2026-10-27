@@ -1,6 +1,6 @@
 # Nha Trang 3D
 
-Bản đồ 3D phong cách hoạt hình của toàn vịnh Nha Trang, chạy trên trình duyệt. Có hàng chục nghìn ngôi nhà, xe chạy, tàu hỏa, thuyền, làng bè và hàng nghìn người đi dạo. Bạn có thể lái xe máy, đi bộ hoặc bơi quanh thành phố và ra các đảo.
+Bản đồ 3D phong cách hoạt hình của toàn vịnh Nha Trang, chạy trên trình duyệt. Có hàng chục nghìn ngôi nhà, xe chạy, tàu hỏa, thuyền, làng bè và hàng nghìn người đi dạo. Bạn có thể lái xe máy, đi bộ hoặc bơi quanh thành phố và ra các đảo, kèm âm thanh sóng biển, phố xá, còi xe, chim hót (nút **Âm thanh** để bật/tắt, phím **H** để bấm còi).
 
 ## Chạy thử
 
@@ -39,11 +39,15 @@ Claude Code sẽ tự đọc `CLAUDE.md` để hiểu kiến trúc: hệ toạ �
 src/page.html      khung trang (header, toolbar, HUD)
 src/styles.css     giao diện
 src/js/geo.js      địa lý, độ cao, sinh nhà và cây (JS thuần)
+src/js/models.js   mô hình nhà Kenney đã chuyển sẵn (file sinh ra)
 src/js/scene.js    dựng cảnh 3D, địa danh, nước, giao thông, thời gian trong ngày
 src/js/crowd.js    đám đông sprite 8 hướng
 src/js/player.js   nhân vật, xe máy, va chạm, bơi
+src/js/audio.js    âm thanh tổng hợp bằng Web Audio
 src/js/ui.js       điều khiển camera, nhãn, giao diện, vòng lặp chính
 build.js           ghép thành 1 file HTML
+assets/models/     GLB gốc của Kenney (CC0)
+tools/             convert-models.js: GLB -> src/js/models.js
 tests/             smoke test chạy trong Chromium
 dist/              bản đã build sẵn
 ```
@@ -71,3 +75,7 @@ Từ đó, mỗi lần sửa code (hoặc nhờ Claude Code sửa) rồi `git pu
 Cách khác không cần Actions: build xong thì chép `dist/index.html` vào thư mục `docs/`, rồi chọn Source là **Deploy from a branch → main → /docs**.
 
 `dist/index.html` cũng đưa lên Netlify hay Vercel được, kéo thả là xong.
+
+## Ghi công
+
+Mô hình nhà vườn, chung cư thấp tầng, dù che: [Kenney](https://www.kenney.nl) — City Kit Suburban và City Kit Commercial, giấy phép CC0.

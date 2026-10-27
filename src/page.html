@@ -34,6 +34,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg>
       <span>Tự xoay</span>
     </button>
+    <button id="btnSound" class="tool" type="button" aria-pressed="true" aria-label="Tắt âm thanh">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path id="sndOn" d="M15.5 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/><path id="sndOff" d="M16 9.5l5 5M21 9.5l-5 5" style="display:none"/></svg>
+      <span>Âm thanh</span>
+    </button>
     <button id="btnHome" class="tool" type="button" aria-label="Về toàn cảnh">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
       <span>Toàn cảnh</span>
@@ -65,9 +69,9 @@
 <div id="playHud" class="play-hud" hidden>
   <div id="speedo" class="speedo panel" hidden><b>0</b><span>km/h</span></div>
   <p id="playMsg" class="play-msg panel" hidden></p>
-  <p class="play-help panel"><b>WASD</b> / mũi tên: đi, lái · <b>Shift</b>: chạy, tăng ga · <b>E</b>: lên/xuống xe, gọi xe · <b>Space</b>: nhảy · Kéo chuột: xoay góc nhìn · <b>Esc</b>: thoát</p>
+  <p class="play-help panel"><b>WASD</b> / mũi tên: đi, lái · <b>Shift</b>: chạy, tăng ga · <b>E</b>: lên/xuống xe, gọi xe · <b>Space</b>: nhảy · <b>H</b>: bấm còi · Kéo chuột: xoay góc nhìn · <b>Esc</b>: thoát</p>
   <div id="joy" class="joy" aria-hidden="true"><div id="joyKnob" class="joy-knob"></div></div>
-  <div class="play-btns"><button id="btnBoost" class="pbtn" type="button">Tăng ga</button><button id="btnMount" class="pbtn pbtn-main" type="button">Lên xe</button></div>
+  <div class="play-btns"><button id="btnHorn" class="pbtn" type="button">Còi</button><button id="btnBoost" class="pbtn" type="button">Tăng ga</button><button id="btnMount" class="pbtn pbtn-main" type="button">Lên xe</button></div>
 </div>
 
 <div id="loader" class="loader"><div class="loader-card panel"><div class="spin"></div><p id="loaderText">Đang dựng bản đồ…</p></div></div>
