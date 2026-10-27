@@ -1,0 +1,15 @@
+{
+  "name": "nha-trang-3d",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Bản đồ 3D hoạt hình vịnh Nha Trang chạy trên web (three.js r147)",
+  "scripts": {
+    "build": "node build.js",
+    "watch": "node build.js --watch",
+    "serve": "npx --yes http-server dist -p 8080 -c-1",
+    "test": "node build.js && node tests/smoke.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.47.0"
+  }
+}

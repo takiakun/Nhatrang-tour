@@ -1,0 +1,78 @@
+<title>Nha Trang 3D</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap">
+<style>
+/*@STYLES@*/
+</style>
+
+<div id="stage"></div>
+<div id="labels"></div>
+
+<header class="brand panel">
+  <h1>Nha Tr<b>a</b>ng</h1>
+  <p class="sub">Vịnh Nha Trang · Khánh Hòa</p>
+  <p id="coord" class="coord">12°14′B · 109°11′Đ</p>
+</header>
+
+<div class="tools">
+  <div class="tool-row panel">
+    <button id="btnTime" class="tool" type="button" aria-label="Đổi thời điểm">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v2M5.6 5.6l1.4 1.4M3 12h2M19 12h2M17 7l1.4-1.4M7 16a5 5 0 0 1 10 0"/><path d="M3 20h18"/></svg>
+      <span id="btnTimeText">Ban ngày</span>
+    </button>
+    <button id="btnPlay" class="tool tool-play" type="button" aria-pressed="false" aria-label="Lái xe dạo quanh thành phố">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="16.5" r="3"/><circle cx="18.5" cy="16.5" r="3"/><path d="M8.5 16.5h5l2.5-6h-4M15 6h3l.5 4.5"/><path d="M5.5 16.5 9 10h4"/></svg>
+      <span>Lái xe</span>
+    </button>
+    <button id="btnLabels" class="tool" type="button" aria-pressed="true" aria-label="Ẩn bảng tên">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8" r="1.3"/></svg>
+      <span>Bảng tên</span>
+    </button>
+    <button id="btnSpin" class="tool" type="button" aria-pressed="false" aria-label="Tự xoay">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg>
+      <span>Tự xoay</span>
+    </button>
+    <button id="btnHome" class="tool" type="button" aria-label="Về toàn cảnh">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+      <span>Toàn cảnh</span>
+    </button>
+  </div>
+  <button id="compass" class="compass panel" type="button" aria-label="Quay mặt về hướng Bắc">
+    <svg viewBox="0 0 48 48"><g id="needle"><path class="n" d="M24 9 L28.5 24 L19.5 24 Z"/><path class="s" d="M24 39 L28.5 24 L19.5 24 Z"/><text x="24" y="7.5" text-anchor="middle">B</text></g></svg>
+  </button>
+</div>
+
+<section id="card" class="card panel" hidden aria-live="polite">
+  <div class="card-top"><span id="cardTag" class="tag"></span><button id="cardClose" class="icon-btn" type="button" aria-label="Đóng">×</button></div>
+  <h2 id="cardTitle"></h2>
+  <p id="cardDesc"></p>
+  <div id="cardFacts" class="facts"></div>
+  <button id="cardGo" class="go-btn" type="button" hidden>Dịch chuyển tới đây</button>
+  <div class="card-nav">
+    <button id="prevBtn" class="nav-btn" type="button">‹ Trước</button>
+    <span id="cardIdx" class="card-idx"></span>
+    <button id="nextBtn" class="nav-btn" type="button">Tiếp ›</button>
+  </div>
+</section>
+
+<div id="scale" class="scalebar panel" aria-hidden="true"><span id="scaleBar" style="width:60px"></span><b id="scaleText">1 km</b></div>
+<p id="hint" class="hint panel">Kéo để di chuyển · Chuột phải hoặc hai ngón để xoay · Cuộn để phóng to · Bấm Lái xe để tự đi dạo</p>
+
+<nav class="rail" aria-label="Địa danh"><div id="rail" class="rail-inner"></div></nav>
+
+<div id="playHud" class="play-hud" hidden>
+  <div id="speedo" class="speedo panel" hidden><b>0</b><span>km/h</span></div>
+  <p id="playMsg" class="play-msg panel" hidden></p>
+  <p class="play-help panel"><b>WASD</b> / mũi tên: đi, lái · <b>Shift</b>: chạy, tăng ga · <b>E</b>: lên/xuống xe, gọi xe · <b>Space</b>: nhảy · Kéo chuột: xoay góc nhìn · <b>Esc</b>: thoát</p>
+  <div id="joy" class="joy" aria-hidden="true"><div id="joyKnob" class="joy-knob"></div></div>
+  <div class="play-btns"><button id="btnBoost" class="pbtn" type="button">Tăng ga</button><button id="btnMount" class="pbtn pbtn-main" type="button">Lên xe</button></div>
+</div>
+
+<div id="loader" class="loader"><div class="loader-card panel"><div class="spin"></div><p id="loaderText">Đang dựng bản đồ…</p></div></div>
+<div id="err" class="err panel" hidden>Trình duyệt này chưa bật WebGL nên không hiển thị được bản đồ 3D. Hãy thử Chrome, Safari hoặc Firefox bản mới.</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<!--@SCRIPTS@-->
