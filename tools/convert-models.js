@@ -17,7 +17,15 @@ const LIST = {
   // Commercial: chung cư, văn phòng thấp tầng; mái hiên, dù che
   'block-b':'com/building-b', 'block-c':'com/building-c', 'block-d':'com/building-d',
   'block-e':'com/building-e',
-  'awning':'com/detail-awning', 'awning-wide':'com/detail-awning-wide', 'parasol-a':'com/detail-parasol-a', 'parasol-b':'com/detail-parasol-b'
+  'awning':'com/detail-awning', 'awning-wide':'com/detail-awning-wide', 'parasol-a':'com/detail-parasol-a', 'parasol-b':'com/detail-parasol-b',
+  // Car Kit: ô tô (xe máy vẫn tự dựng vì bộ này không có)
+  'car-sedan':'car/sedan', 'car-sedan-sports':'car/sedan-sports', 'car-hatchback':'car/hatchback-sports', 'car-suv':'car/suv',
+  'car-suv-luxury':'car/suv-luxury', 'car-taxi':'car/taxi', 'car-van':'car/van', 'car-pickup':'car/truck',
+  // Watercraft Kit: thuyền đánh cá, phà, ca nô, thuyền buồm, tàu khách, tàu hàng
+  'boat-fishing':'boat/boat-fishing-small', 'boat-ferry':'boat/boat-tow-b', 'boat-speed-a':'boat/boat-speed-a', 'boat-speed-c':'boat/boat-speed-c',
+  'boat-speed-e':'boat/boat-speed-e', 'boat-sail-a':'boat/boat-sail-a', 'boat-sail-b':'boat/boat-sail-b', 'ship-liner':'boat/ship-ocean-liner', 'ship-cargo':'boat/ship-cargo-a',
+  // Train Kit: đầu máy và toa khách
+  'train-loco':'train/train-diesel-a', 'train-coach':'train/train-locomotive-passenger-a'
 };
 
 /* ---------- PNG tối giản (8 bit; RGB, RGBA, bảng màu, xám) ---------- */

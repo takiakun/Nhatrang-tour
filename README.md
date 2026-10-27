@@ -47,7 +47,7 @@ src/js/audio.js    âm thanh tổng hợp bằng Web Audio
 src/js/ui.js       điều khiển camera, nhãn, giao diện, vòng lặp chính
 build.js           ghép thành 1 file HTML
 assets/models/     GLB gốc của Kenney (CC0)
-tools/             convert-models.js: GLB -> src/js/models.js
+tools/             convert-models.js, pack-character.js, render-crowd.js: sinh dữ liệu mô hình nhúng
 tests/             smoke test chạy trong Chromium
 dist/              bản đã build sẵn
 ```
@@ -78,4 +78,4 @@ Cách khác không cần Actions: build xong thì chép `dist/index.html` vào t
 
 ## Ghi công
 
-Mô hình nhà vườn, chung cư thấp tầng, dù che: [Kenney](https://www.kenney.nl) — City Kit Suburban và City Kit Commercial, giấy phép CC0.
+Mô hình của [Kenney](https://www.kenney.nl), giấy phép CC0: City Kit Suburban, City Kit Commercial (nhà, dù che), Car Kit (ô tô), Watercraft Kit (thuyền, tàu), Train Kit (tàu hỏa), Mini Characters (nhân vật chính, đám đông).

@@ -6,7 +6,7 @@
 const fs = require('fs'), path = require('path');
 const SRC = path.join(__dirname, 'src'), DIST = path.join(__dirname, 'dist');
 // Thứ tự quan trọng: các file chia chung một scope (bọc trong 1 IIFE).
-const ORDER = ['geo.js', 'models.js', 'scene.js', 'crowd.js', 'player.js', 'audio.js', 'ui.js'];
+const ORDER = ['geo.js', 'models.js', 'scene.js', 'crowd-sheet.js', 'crowd.js', 'character.js', 'player.js', 'audio.js', 'ui.js'];
 function build(){
   const tpl = fs.readFileSync(path.join(SRC, 'page.html'), 'utf8');
   const css = fs.readFileSync(path.join(SRC, 'styles.css'), 'utf8');

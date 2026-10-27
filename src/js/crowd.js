@@ -94,6 +94,12 @@ function genCrowd(n){
 var crowdU = { uTime:{ value:0 }, uCam:{ value:new THREE.Vector3() }, uMap:{ value:null }, uLight:{ value:new THREE.Color(1.2, 1.2, 1.2) }, uFogColor:{ value:new THREE.Color() }, uFogNear:{ value:100 }, uFogFar:{ value:1000 } };
 function buildCrowd(){
   var sheet = buildSpriteSheet(), tex = new THREE.CanvasTexture(sheet); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 4; crowdU.uMap.value = tex;
+  // Các hàng người mặc thường phục được thay bằng nhân vật Kenney vẽ sẵn (crowd-sheet.js); áo dài, nón lá, gánh hàng, người bơi giữ bản vẽ tay.
+  // Ảnh giải mã bất đồng bộ nên lúc đầu vẫn hiện bản vẽ tay, xong thì chép đè.
+  if (typeof CROWD_SHEET === 'string'){ var KROW = [0, 2, 3, 5, 6, 8, 9], im = new Image();
+    im.onload = function(){ var x = sheet.getContext('2d'); KROW.forEach(function(row, k){ if (k >= KENNEY_ROWS.length) return; x.clearRect(0, row * SPR.ch, SPR.cw * SPR.cols, SPR.ch);
+      x.drawImage(im, 0, k * SPR.ch, SPR.cw * SPR.cols, SPR.ch, 0, row * SPR.ch, SPR.cw * SPR.cols, SPR.ch); }); tex.needsUpdate = true; };
+    im.src = CROWD_SHEET; }
   var data = genCrowd(LITE ? 1600 : 4200), N = data.length / 10;
   var base = new THREE.PlaneGeometry(1, 1.5); base.translate(0, 0.75, 0);
   var g = new THREE.InstancedBufferGeometry(); g.index = base.index; g.setAttribute('position', base.attributes.position); g.setAttribute('uv', base.attributes.uv);

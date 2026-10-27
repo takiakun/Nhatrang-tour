@@ -119,8 +119,30 @@ function buildPlayer(B){
   scene.add(ch.root); scene.add(bk.root);
   PL = { ch:ch, bk:bk, mode:'walk', x:sp.x, z:sp.z, y:G.hAt(sp.x, sp.z), yaw:Math.PI, speed:0, vy:0, phase:0, steer:0, bike:{ x:sp.x - 0.95, z:sp.z, yaw:Math.PI, speed:0 }, msgT:0, lean:0, lastInput:0 };
   var bz = sp.z, bx = coastX(bz) - 2.6 + 0.12; PL.bike.x = bx; PL.bike.z = bz;
-  placeBikeIdle(); placeChar(0, 0);
+  placeBikeIdle(); placeChar(0, 0); loadKenneyChar();
 }
+/* ---------- nhân vật Kenney có xương (Mini Characters, CC0) ---------- */
+// Nạp bất đồng bộ từ GLB nhúng trong character.js. Trong lúc chờ, hoặc nếu không tải được GLTFLoader, vẫn dùng nhân vật khối cũ.
+// Mô hình được gắn vào cùng C.root nên mọi chỗ đặt vị trí, lên xuống xe giữ nguyên; tay chân cũ vẫn được xoay nhưng đã ẩn.
+function loadKenneyChar(){ if (!THREE.GLTFLoader || typeof CHAR_GLB === 'undefined') return;
+  try { new THREE.GLTFLoader().parse(b64arr(CHAR_GLB.player, Uint8Array).buffer, '', function(gl){
+    var m = gl.scene, bb = new THREE.Box3().setFromObject(m), s = 3.1 / Math.max(0.001, bb.max.y - bb.min.y); m.scale.setScalar(s); m.position.y = -bb.min.y * s;
+    m.traverse(function(o){ if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; if (o.material){ o.material.metalness = 0; o.material.roughness = 0.75; } } });
+    var C = PL.ch; C.root.children.forEach(function(c){ c.visible = false; }); C.root.add(m);
+    var K = C.k = { model:m, mixer:new THREE.AnimationMixer(m), act:{}, cur:'' };
+    gl.animations.forEach(function(a){ var ac = K.mixer.clipAction(a); if (a.name === 'jump'){ ac.setLoop(THREE.LoopOnce); ac.clampWhenFinished = true; } K.act[a.name] = ac; });
+  }, function(e){ console.warn('Không nạp được nhân vật Kenney', e); }); } catch (e){ console.warn(e); } }
+function animKenney(dt){ var K = PL.ch.k; if (!K) return; var want = 'idle', ts = 1;
+  var air = PL.mode === 'walk' && PL.y > groundAt(PL.x, PL.z).y + 0.01;
+  if (PL.mode === 'bike') want = K.act.drive ? 'drive' : 'sit';
+  else if (PL.mode === 'swim'){ want = 'sprint'; ts = 0.45 + PL.speed * 0.25; }
+  else if (air) want = PL.vy > 0 ? 'jump' : 'fall';
+  else if (PL.speed > 0.45){ want = 'sprint'; ts = clamp(PL.speed / 0.72, 0.6, 1.4); }
+  else if (PL.speed > 0.03){ want = 'walk'; ts = clamp(PL.speed / 0.3, 0.5, 1.5); }
+  if (K.cur !== want && K.act[want]){ K.act[want].reset().fadeIn(0.15).play(); if (K.act[K.cur]) K.act[K.cur].fadeOut(0.15); K.cur = want; }
+  if (K.act[want]) K.act[want].timeScale = ts;
+  K.model.rotation.x = PL.mode === 'swim' ? 1.35 : 0; K.model.position.z = PL.mode === 'swim' ? -1.2 : 0;
+  K.mixer.update(dt); }
 function placeBikeIdle(){ var b = PL.bike, g = groundAt(b.x, b.z); PL.bk.root.position.set(b.x, g.y, b.z); PL.bk.root.rotation.set(0, b.yaw, 0.12, 'YXZ'); }
 function placeChar(dt, sp){ var C = PL.ch; C.root.position.set(PL.x, PL.y, PL.z); C.root.rotation.set(0, PL.yaw, 0); }
 
@@ -190,6 +212,7 @@ function updatePlayer(dt){
       C.head.rotation.set(0, 0, Math.sin(t * 1.3) * 0.03 * (1 - Math.min(1, amp))); }
     C.root.position.set(PL.x, PL.y, PL.z); C.root.rotation.set(0, PL.yaw, 0);
   }
+  animKenney(dt);
   var lit = lampK > 0.01; PL.bk.glow.material.opacity = lampK; PL.bk.glow.visible = lit;
   var spEl = document.getElementById('speedo'); if (spEl){ if (PL.mode === 'bike'){ spEl.hidden = false; spEl.firstChild.textContent = String(Math.round(Math.abs(PL.bike.speed) / 2.4 * 70)); } else spEl.hidden = true; }
 }

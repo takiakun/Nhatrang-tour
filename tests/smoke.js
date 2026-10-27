@@ -7,7 +7,8 @@ const { chromium } = require('playwright'); const fs = require('fs'); const path
   const html = fs.readFileSync(path.join(__dirname, '../dist/index.html'), 'utf8');
   const stub = fs.readFileSync(path.join(__dirname, 'stub-three.js'), 'utf8');
   const browser = await chromium.launch(); let fail = 0;
-  for (const vp of [{ w:1440, h:900, name:'desktop' }, { w:390, h:844, name:'phone', mobile:true }]){
+  // phone = điện thoại mạnh (8 nhân) dựng bản đầy đủ; phone-lite ép bản nhẹ bằng ?q=lite
+  for (const vp of [{ w:1440, h:900, name:'desktop' }, { w:390, h:844, name:'phone', mobile:true }, { w:390, h:844, name:'phone-lite', mobile:true, q:'?q=lite' }]){
     const ctx = await browser.newContext({ viewport:{ width:vp.w, height:vp.h }, isMobile:!!vp.mobile, hasTouch:!!vp.mobile });
     const page = await ctx.newPage(), errs = [];
     await page.addInitScript(() => Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 }));
@@ -17,7 +18,7 @@ const { chromium } = require('playwright'); const fs = require('fs'); const path
       if (u.includes('OrbitControls')) return r.fulfill({ contentType:'application/javascript', body:'' });
       if (u.startsWith('http://local/')) return r.fulfill({ contentType:'text/html', body:html });
       return r.abort(); });
-    const t0 = Date.now(); await page.goto('http://local/');
+    const t0 = Date.now(); await page.goto('http://local/' + (vp.q || ''));
     await page.waitForFunction(() => window.__nt || !document.getElementById('err').hidden, null, { timeout:90000 });
     const r = await page.evaluate(() => { const n = window.__nt; if (!n) return { err:document.getElementById('err').textContent };
       return { houses:n.B.tubes.length + n.B.villas.length, towers:n.B.towers.length, trees:n.T.round.length + n.T.cones.length, people:n.anim.crowd.n, vehicles:n.anim.vehicles.list.length, landmarks:n.LM.length, scrollW:document.documentElement.scrollWidth }; });
