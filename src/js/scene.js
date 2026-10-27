@@ -8,8 +8,13 @@ var stage = document.getElementById('stage');
 var renderer;
 try { renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true, powerPreference:'high-performance' }); }
 catch (e){ fail('Trình duyệt này chưa bật WebGL nên không hiển thị được bản đồ 3D. Hãy thử Chrome, Safari hoặc Firefox bản mới.'); return; }
-var LITE = Math.min(innerWidth, innerHeight) < 700 || (navigator.hardwareConcurrency || 8) <= 2;
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, LITE ? 1.5 : 1.75));
+// Chất lượng: LITE = giảm mật độ thế giới (nhà, cây, người, xe) lúc dựng; SMALL = màn hình nhỏ, giảm độ phân giải, bóng.
+// Điện thoại mạnh (≥ 6 nhân, hoặc iPhone màn hình dpr 3) vẫn dựng bản đầy đủ; nếu chạy không nổi, bộ điều tốc trong ui.js
+// tự hạ chất lượng và ghi nhớ để lần sau dựng bản LITE. Ép bằng ?q=lite hoặc ?q=full.
+var QP = (location.search.match(/[?&]q=(lite|full)/) || [])[1], QSAVED = null; try { QSAVED = localStorage.getItem('nt-q'); } catch (e){}
+var SMALL = Math.min(innerWidth, innerHeight) < 700, CORES = navigator.hardwareConcurrency || 8, APPLE = /iPhone|iPad|Macintosh/.test(navigator.userAgent) && 'ontouchend' in document;
+var LITE = QP ? QP === 'lite' : (QSAVED === 'lite' || CORES <= 2 || (SMALL && CORES < 6 && !(APPLE && devicePixelRatio >= 3)));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, LITE || SMALL ? 1.5 : 1.75));
 renderer.setSize(innerWidth, innerHeight);
 renderer.setClearColor(0x000000, 0);
 renderer.outputEncoding = THREE.sRGBEncoding;
@@ -27,7 +32,7 @@ var camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.5, 4000
 var hemi = new THREE.HemisphereLight(0xe3f6ff, 0x93a46a, 0.72); scene.add(hemi);
 var sun = new THREE.DirectionalLight(0xfff1d6, 1.35);
 sun.castShadow = true;
-sun.shadow.mapSize.set(LITE ? 1024 : 2048, LITE ? 1024 : 2048);
+sun.shadow.mapSize.set(LITE || SMALL ? 1024 : 2048, LITE || SMALL ? 1024 : 2048);
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.035;
 var SC = sun.shadow.camera; SC.near = 1; SC.far = 900;
 scene.add(sun); scene.add(sun.target);
@@ -79,6 +84,18 @@ function kitMat(){ var m = glowMat('#ffffff', '#ffb35c', 0, 0.16); m.vertexColor
     .replace('#include <color_vertex>', 'vColor = color * mix(instanceColor, aRoof, aMask);'); };
   m.customProgramCacheKey = function(){ return 'kit'; };
   return m; }
+var KIT = null; function kit(){ return KIT || (KIT = kitMat()); }
+// Kích thước (rộng, cao, dài) để mô hình dài đúng len theo trục z mà vẫn giữ tỷ lệ gốc
+function fitLen(id, len){ var s = modelGeo(id).userData.size, k = len / s[2]; return new THREE.Vector3(s[0] * k, s[1] * k, len); }
+// Mô hình đặt riêng lẻ (không instancing): màu mái/tán nướng thẳng vào màu đỉnh, dùng VCM.
+// Mũi tàu, đầu xe Kenney hướng +z; flip quay 180° cho các đối tượng code cũ coi −z là phía trước.
+function kitMesh(id, len, roof, flip){ var g = modelGeo(id).clone(), mk = g.attributes.aMask.array, a = g.attributes.color.array.slice(), rc = new THREE.Color(roof || '#d9483b');
+  for (var i = 0; i < mk.length; i++) if (mk[i] > 0){ a[i * 3] *= rc.r; a[i * 3 + 1] *= rc.g; a[i * 3 + 2] *= rc.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(a, 3)); var m = new THREE.Mesh(g, VCM); m.scale.copy(fitLen(id, len)); if (flip) m.rotation.y = Math.PI;
+  m.castShadow = m.receiveShadow = true; var o = new THREE.Group(); o.add(m); return o; }
+// InstancedMesh động dùng kitMat: màu từng chiếc = instanceColor (mặc định trắng), mái = aRoof
+function kitDyn(id, n, cast){ var g = modelGeo(id).clone(), N = Math.max(n, 1), im = dynInst(g, kit(), n, cast);
+  g.setAttribute('aRoof', new THREE.InstancedBufferAttribute(new Float32Array(N * 3).fill(0.85), 3)); for (var i = 0; i < N; i++){ _c.setRGB(1, 1, 1); im.setColorAt(i, _c); } return im; }
 
 var CHX = 4, CHZ = 4, _d = new THREE.Object3D(), _c = new THREE.Color(), _c2 = new THREE.Color();
 function chunkOf(x, z){ return clamp(Math.floor((z - BZ0) / BD * CHZ), 0, CHZ - 1) * CHX + clamp(Math.floor((x - BX0) / BW * CHX), 0, CHX - 1); }
@@ -184,34 +201,16 @@ function buildTemple(){ var g = new THREE.Group();
 function buildCablePylon(h){ var g = new THREE.Group(), tw = cyl(0.12, 0.42, h + 1.5, 4, '#f2f2f2'); tw.rotation.y = Math.PI / 4; g.add(at(tw, 0, (h + 1.5) / 2 - 1.5, 0));
   g.add(at(box(1.6, 0.14, 0.2, '#e0473a'), 0, h, 0)); g.add(at(box(0.5, 0.3, 0.5, '#e0473a'), 0, h - 0.5, 0)); return g; }
 function buildCableStation(){ var g = new THREE.Group(); g.add(at(box(1.3, 1.1, 1.3, '#ffffff'), 0, 0.55, 0)); g.add(at(box(1.6, 0.16, 1.6, '#f2592c'), 0, 1.18, 0)); g.add(at(box(0.06, 0.5, 0.8, '#3f7fae'), 0.66, 0.6, 0)); return g; }
-function buildCruiseShip(){ var g = new THREE.Group();
-  var hs = new THREE.Shape(); hs.moveTo(-0.42, 3); hs.lineTo(0.42, 3); hs.lineTo(0.46, -2.4); hs.lineTo(0, -3.2); hs.lineTo(-0.46, -2.4); hs.closePath();
-  var hull = new THREE.ExtrudeGeometry(hs, { depth:0.55, bevelEnabled:false }); hull.rotateX(Math.PI / 2); hull.translate(0, 0.35, 0);
-  g.add(mesh(hull, '#1f3550')); g.add(at(box(0.86, 0.06, 5.6, '#c43d32'), 0, 0.02, -0.1));
-  [[0.84,0.32,4.8,0.5],[0.78,0.3,4.2,0.82],[0.7,0.3,3.4,1.12],[0.58,0.28,2.4,1.41]].forEach(function(t){ g.add(at(box(t[0], t[1], t[2], '#fbfbf8'), 0, t[3], 0.2)); g.add(at(box(t[0] + 0.01, 0.06, t[2] - 0.1, '#2f4a63'), 0, t[3] + 0.05, 0.2)); });
-  g.add(at(box(0.3, 0.42, 0.42, '#c43d32'), 0, 1.75, 1.0)); g.add(at(box(0.32, 0.08, 0.44, '#1f3550'), 0, 1.98, 1.0));
-  g.add(at(box(0.4, 0.02, 0.6, '#57b7d6'), 0, 1.56, -0.4)); return g; }
-function buildCargoShip(){ var g = new THREE.Group(); g.add(at(box(0.9, 0.5, 5, '#2a5f86'), 0, 0.1, 0)); g.add(at(box(0.9, 0.1, 5, '#a8382c'), 0, -0.1, 0));
-  var cc = ['#c0392b','#2e86c1','#f1c40f','#27ae60','#e67e22','#8e44ad'];
-  for (var i = 0; i < 7; i++) for (var j = 0; j < 2; j++) g.add(at(box(0.38, 0.22, 0.5, cc[(i * 3 + j) % cc.length]), -0.2 + j * 0.4, 0.46, -1.8 + i * 0.55));
-  g.add(at(box(0.8, 0.8, 0.6, '#f2f2f2'), 0, 0.75, 2.1)); g.add(at(box(0.2, 0.4, 0.2, '#333'), 0, 1.3, 2.2)); return g; }
+function buildCruiseShip(){ return kitMesh('ship-liner', 6.4, null, true); }
+function buildCargoShip(){ return kitMesh('ship-cargo', 5.4, null, true); }
 
 /* ---------- boats ---------- */
-var hullShape = new THREE.Shape(); hullShape.moveTo(-0.65, 1.6); hullShape.lineTo(0.65, 1.6); hullShape.lineTo(0.7, -0.6); hullShape.lineTo(0, -1.9); hullShape.lineTo(-0.7, -0.6); hullShape.closePath();
-function hullGeo(depth, y){ var g = new THREE.ExtrudeGeometry(hullShape, { depth:depth, bevelEnabled:false }); g.rotateX(Math.PI / 2); g.translate(0, y, 0); return g; }
-var BOAT_S = 0.13;
-var boatHullGeo = merge([[hullGeo(0.55, 0.55), MX(0, 0, 0, 0, 0, 0, BOAT_S), '#ffffff']]);
-var boatTopGeo = merge([[hullGeo(0.12, 0.67), MX(0, 0, 0, 0, 0, 0, BOAT_S), '#d9483b'], [new THREE.BoxGeometry(0.95, 0.75, 1.0), MX(0, 1.05 * BOAT_S, 0.6 * BOAT_S, 0, 0, 0, BOAT_S), '#f1ece0'], [new THREE.BoxGeometry(1.15, 0.1, 1.2), MX(0, 1.47 * BOAT_S, 0.6 * BOAT_S, 0, 0, 0, BOAT_S), '#2f6fb0']]);
-function fishingBoat(hull, trim, s){ var g = new THREE.Group(), k = s || 1;
-  g.add(mesh(hullGeo(0.55, 0.55), hull)); g.add(mesh(hullGeo(0.12, 0.67), trim)); g.add(at(box(0.95, 0.75, 1.0, '#ffffff'), 0, 1.05, 0.6)); g.add(at(box(1.15, 0.1, 1.2, trim), 0, 1.47, 0.6));
-  g.scale.setScalar(BOAT_S * k); return g; }
-function ferryBoat(){ var g = new THREE.Group(); g.add(mesh(hullGeo(0.6, 0.6), '#f6f6f2')); g.add(mesh(hullGeo(0.1, 0.72), '#1e6fa8'));
-  g.add(at(box(1.1, 0.7, 2.4, '#ffffff'), 0, 1.05, 0.2)); g.add(at(box(1.12, 0.22, 2.3, '#3a6d8c'), 0, 1.15, 0.2)); g.add(at(box(1.2, 0.08, 2.6, '#1e6fa8'), 0, 1.44, 0.2)); g.scale.setScalar(0.24); return g; }
-function speedBoat(){ var g = new THREE.Group(); g.add(mesh(hullGeo(0.4, 0.4), '#ffffff')); g.add(mesh(hullGeo(0.08, 0.48), '#e0473a')); g.add(at(box(0.9, 0.35, 0.7, '#9fd0e6'), 0, 0.68, 0.1)); g.scale.setScalar(0.1); return g; }
-function sailBoat(){ var g = new THREE.Group(); g.add(mesh(hullGeo(0.4, 0.4), '#ffffff')); g.add(at(cyl(0.05, 0.05, 4.2, 5, '#dddddd'), 0, 2.4, 0.1));
-  var s = new THREE.Shape(); s.moveTo(0, 0); s.lineTo(0, 3.6); s.lineTo(0, 0.2); s.lineTo(1.4, 0.2); s.closePath();
-  var sg = new THREE.ShapeGeometry(s); var sail = new THREE.Mesh(sg, new THREE.MeshStandardMaterial({ color:'#fffaf0', side:THREE.DoubleSide, roughness:0.9 })); sail.rotation.y = Math.PI / 2; sail.position.set(0, 0.6, 0.15); sail.castShadow = true; g.add(sail);
-  g.scale.setScalar(0.12); return g; }
+// Thuyền Kenney (Watercraft Kit). Chiều dài theo đơn vị bản đồ; mũi hướng −z như code chuyển động đang dùng.
+var BOAT_L = 0.46;
+function fishingBoat(hull, trim, s){ return kitMesh('boat-fishing', BOAT_L * (s || 1), trim, true); }
+function ferryBoat(){ return kitMesh('boat-ferry', 0.84, '#1e6fa8', true); }
+var speedN = 0; function speedBoat(){ return kitMesh(speedN++ % 2 ? 'boat-speed-e' : 'boat-speed-a', 0.42, null, true); }
+var sailN = 0; function sailBoat(){ return kitMesh(sailN++ % 2 ? 'boat-sail-b' : 'boat-sail-a', 0.5, null, true); }
 var coracleGeo = (function(){ var g = new THREE.SphereGeometry(0.8, 12, 5, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2); g.scale(1, 0.5, 1); g.translate(0, 0.25, 0); return merge([[g, MX(0, 0, 0, 0, 0, 0, 0.11), '#3c5d93'], [new THREE.TorusGeometry(0.8, 0.06, 4, 16), MX(0, 0.25 * 0.11, 0, Math.PI / 2, 0, 0, 0.11), '#24375a']]); })();
 
 /* ---------- vegetation & small object geometries ---------- */
@@ -544,7 +543,7 @@ function buildVegetation(T, B){
 }
 
 function buildBoats(){
-  var hulls = [], coracles = [], HC = ['#2f6fd6','#1f8fb0','#2a5fae','#3d86c6','#1e7a9e','#2b9bb8'];
+  var hulls = [], coracles = [], HC = ['#ffffff','#e6f0ff','#dcebf5','#fff4e8','#e8f6f0'];
   function okW(x, z, r){ return G.hAt(x, z) < -0.32 && G.hAt(x + r, z) < -0.25 && G.hAt(x - r, z) < -0.25 && G.hAt(x, z + r) < -0.25 && G.hAt(x, z - r) < -0.25; }
   function cluster(lat, lon, rad, n, list, align){ var c = P(lat, lon), tries = 0, made = 0; while (made < n && tries < n * 30){ tries++; var a = ih(tries, lat * 1e4) * Math.PI * 2, r = Math.sqrt(ih(lon * 1e4, tries)) * rad, x = c[0] + Math.cos(a) * r, z = c[1] + Math.sin(a) * r;
       if (!inBoard(x, z, 2) || !okW(x, z, 0.28)) continue; var ok = true; for (var k = list.length - 1; k >= Math.max(0, list.length - 60); k--){ if (Math.hypot(list[k].x - x, list[k].z - z) < 0.36){ ok = false; break; } } if (!ok) continue;
@@ -553,8 +552,8 @@ function buildBoats(){
   cluster(12.2058, 109.2192, 2.2, 10, hulls); cluster(12.1966, 109.2888, 3, 18, hulls, 0); cluster(12.1942, 109.2194, 2.4, 12, hulls); cluster(12.2775, 109.2098, 2.4, 8, hulls);
   cluster(12.1950, 109.2102, 3.5, LITE ? 30 : 60, coracles); cluster(12.2628, 109.2030, 2.5, 25, coracles); cluster(12.2748, 109.2098, 2.5, 15, coracles); cluster(12.1946, 109.2190, 2, 15, coracles);
   anim.boats = hulls;
-  anim.hullIM = dynInst(boatHullGeo, VCM, hulls.length); anim.topIM = dynInst(boatTopGeo, VCM, hulls.length);
-  hulls.forEach(function(b, i){ _c.set(b.c); anim.hullIM.setColorAt(i, _c); _c.set('#ffffff'); anim.topIM.setColorAt(i, _c); });
+  anim.hullIM = kitDyn('boat-fishing', hulls.length); anim.hullK = fitLen('boat-fishing', BOAT_L);
+  hulls.forEach(function(b, i){ _c.set(b.c); anim.hullIM.setColorAt(i, _c); });
   instChunks(coracleGeo, VCM, coracles, function(d, it, c){ d.position.set(it.x, 0.02, it.z); d.rotation.y = it.r; c.set(['#3c5d93','#2f4f7f','#4a6aa0'][(ih(it.x, it.z) * 3) | 0]); }, { cast:false });
   /* floating fish farms */
   var cells = [], huts = [];
@@ -589,8 +588,13 @@ function buildBoats(){
 }
 
 function buildTraffic(){
-  var vehGeo = { moto: merge([[new THREE.BoxGeometry(0.04, 0.04, 0.12), MX(0, 0.04, 0), '#ffffff'], [new THREE.BoxGeometry(0.036, 0.05, 0.035), MX(0, 0.085, -0.01), '#3b3b3b'], [new THREE.SphereGeometry(0.02, 6, 4), MX(0, 0.125, -0.005), '#f2f2f2']]),
-    car: merge([[new THREE.BoxGeometry(0.1, 0.05, 0.21), MX(0, 0.04, 0), '#ffffff'], [new THREE.BoxGeometry(0.088, 0.04, 0.11), MX(0, 0.085, -0.01), '#cfe0ea']]),
+  // Xe máy tự dựng (xe tay ga + người lái đội mũ bảo hiểm); phần trắng nhận màu từng chiếc. Ô tô dùng mô hình Kenney (CARS).
+  var wheel = new THREE.CylinderGeometry(0.021, 0.021, 0.012, 8); wheel.rotateZ(Math.PI / 2);
+  var vehGeo = { moto: merge([[wheel, MX(0, 0.021, 0.042), '#2b2b2b'], [wheel, MX(0, 0.021, -0.042), '#2b2b2b'],
+      [new THREE.BoxGeometry(0.032, 0.028, 0.08), MX(0, 0.042, -0.008), '#ffffff'], [new THREE.BoxGeometry(0.03, 0.055, 0.012), MX(0, 0.058, 0.036, -0.25, 0, 0), '#ffffff'],
+      [new THREE.BoxGeometry(0.052, 0.006, 0.006), MX(0, 0.088, 0.036), '#3b3b3b'], [new THREE.BoxGeometry(0.03, 0.012, 0.05), MX(0, 0.062, -0.018), '#262626'],
+      [new THREE.BoxGeometry(0.03, 0.012, 0.044), MX(0, 0.072, 0.004), '#3c4a63'], [new THREE.BoxGeometry(0.032, 0.042, 0.022), MX(0, 0.095, -0.012, 0.15, 0, 0), '#e9e4da'],
+      [new THREE.BoxGeometry(0.044, 0.008, 0.008), MX(0, 0.104, 0.008), '#d9b48f'], [new THREE.SphereGeometry(0.0145, 8, 6), MX(0, 0.128, -0.006), '#ffffff']]),
     bus: merge([[new THREE.BoxGeometry(0.12, 0.11, 0.44), MX(0, 0.075, 0), '#ffffff'], [new THREE.BoxGeometry(0.124, 0.035, 0.42), MX(0, 0.095, 0), '#3d4a57']]) };
   var NV = LITE ? 240 : 560, roads = ROADS_S.filter(function(R){ return R.L > 4; }), tot = roads.reduce(function(s, R){ return s + R.L; }, 0), rv = mulberry32(5);
   var V = { moto:[], car:[], bus:[] }, MC = ['#d62828','#1d3557','#f1faee','#2a2a2a','#457b9d','#e9c46a','#8d99ae','#e76f51'], CC = ['#ffffff','#c0c4c8','#d62828','#1d3557','#2a2a2a','#e9ecef','#3a86ff'], BC = ['#2f8f5f','#e0a020','#2e6fb5','#e85d04'];
@@ -598,15 +602,16 @@ function buildTraffic(){
     var r = rv(), type = r < 0.74 ? 'moto' : (r < 0.95 ? 'car' : 'bus');
     var pal = type === 'moto' ? MC : (type === 'car' ? CC : BC);
     V[type].push({ R:R, s:rv() * R.L, dir:rv() < 0.5 ? 1 : -1, sp:(type === 'moto' ? 0.42 : type === 'car' ? 0.5 : 0.36) * (0.8 + rv() * 0.4), l:rv(), c:pal[(rv() * pal.length) | 0], len:type === 'bus' ? 0.44 : type === 'car' ? 0.21 : 0.12 }); }
-  var all = []; ['moto', 'car', 'bus'].forEach(function(t){ var im = dynInst(vehGeo[t], VCM, V[t].length, t !== 'moto'); V[t].forEach(function(v, i){ v.im = im; v.k = i; _c.set(v.c || '#ffffff'); im.setColorAt(i, _c); all.push(v); }); });
+  var all = []; ['moto', 'bus'].forEach(function(t){ var im = dynInst(vehGeo[t], VCM, V[t].length, t !== 'moto'); V[t].forEach(function(v, i){ v.im = im; v.k = i; _c.set(v.c || '#ffffff'); im.setColorAt(i, _c); all.push(v); }); });
+  var CARS = ['car-sedan','car-sedan-sports','car-hatchback','car-suv','car-suv-luxury','car-taxi','car-van','car-pickup'], CT = ['#ffffff','#ffffff','#eef2f7','#f7f0e6'];
+  CARS.forEach(function(id, m){ var list = V.car.filter(function(v, i){ return ((ih(i * 7 + 3, 13) * CARS.length) | 0) === m; }), im = kitDyn(id, list.length, true), sc = fitLen(id, 0.21);
+    list.forEach(function(v, i){ v.im = im; v.k = i; v.sc = sc; _c.set(CT[(ih(i, m) * CT.length) | 0]); im.setColorAt(i, _c); all.push(v); }); });
   var pos = new Float32Array(all.length * 6), col = new Float32Array(all.length * 6);
   all.forEach(function(v, i){ col.set([1, 0.93, 0.78, 1, 0.16, 0.12], i * 6); });
   carPts = glowPoints(pos, col, 0.22); anim.vehicles = { list:all, pos:pos };
   /* train */
-  var tg = merge([[new THREE.BoxGeometry(0.16, 0.15, 0.56), MX(0, 0.12, 0), '#ffffff'], [new THREE.BoxGeometry(0.162, 0.035, 0.54), MX(0, 0.13, 0), '#2b3a55']]);
-  var tim = dynInst(tg, VCM, 10); var TCOL = ['#d23c2a', '#2f6fb5', '#2f6fb5', '#f2f2f2', '#2f6fb5', '#2f6fb5', '#f2f2f2', '#2f6fb5', '#2f6fb5', '#2f6fb5'];
-  TCOL.forEach(function(c, i){ _c.set(c); tim.setColorAt(i, _c); });
-  anim.train = { im:tim, s:20, dir:1, wait:0 };
+  // tàu hoả: 1 đầu máy diesel + 9 toa khách (Kenney Train Kit)
+  anim.train = { loco:kitDyn('train-loco', 1), im:kitDyn('train-coach', 9), kl:fitLen('train-loco', 0.56), kc:fitLen('train-coach', 0.56), s:20, dir:1, wait:0 };
 }
 
 function buildLamps(bridgeLights){

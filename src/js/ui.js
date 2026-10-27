@@ -216,8 +216,8 @@ function setupPlay(){
 var vp = { x:0, y:0, z:0, fx:0, fz:0 }, _v3 = new THREE.Vector3(), _tan = new THREE.Vector3();
 function updateAnim(dt, ts){
   var i, b;
-  if (anim.hullIM && frameN % 2 === 0){ for (i = 0; i < anim.boats.length; i++){ b = anim.boats[i]; _d.position.set(b.x, -0.035 + 0.025 * Math.sin(ts * 1.8 + b.ph), b.z); _d.rotation.set(0.04 * Math.sin(ts * 1.3 + b.ph), b.r, 0.05 * Math.sin(ts * 1.6 + b.ph)); _d.scale.set(1, 1, 1); _d.updateMatrix(); anim.hullIM.setMatrixAt(i, _d.matrix); anim.topIM.setMatrixAt(i, _d.matrix); }
-    anim.hullIM.instanceMatrix.needsUpdate = true; anim.topIM.instanceMatrix.needsUpdate = true; }
+  if (anim.hullIM && frameN % 2 === 0){ for (i = 0; i < anim.boats.length; i++){ b = anim.boats[i]; _d.position.set(b.x, -0.035 + 0.025 * Math.sin(ts * 1.8 + b.ph), b.z); _d.rotation.set(0.04 * Math.sin(ts * 1.3 + b.ph), b.r, 0.05 * Math.sin(ts * 1.6 + b.ph)); _d.scale.copy(anim.hullK); _d.updateMatrix(); anim.hullIM.setMatrixAt(i, _d.matrix); }
+    anim.hullIM.instanceMatrix.needsUpdate = true; }
   anim.movers.forEach(function(m){ m.t += dt * m.sp / m.len; var u, sgn = 1;
     if (m.loop) u = ((m.t % 1) + 1) % 1; else { var q = ((m.t % 2) + 2) % 2; u = q < 1 ? q : 2 - q; sgn = q < 1 ? 1 : -1; }
     m.curve.getPointAt(u, _v3); m.curve.getTangentAt(u, _tan); _tan.multiplyScalar(sgn);
@@ -228,14 +228,14 @@ function updateAnim(dt, ts){
   if (V){ var pos = V.pos, ims = {};
     for (i = 0; i < V.list.length; i++){ var v = V.list[i], R = v.R; v.s += v.dir * v.sp * dt; if (v.s < 0){ v.s = 0; v.dir = 1; } else if (v.s > R.L){ v.s = R.L; v.dir = -1; }
       roadPoint(R, v.s, vp); var fx = vp.fx * v.dir, fz = vp.fz * v.dir, off = R.w * (0.12 + 0.17 * v.l), x = vp.x - fz * off, z = vp.z + fx * off;
-      _d.position.set(x, vp.y, z); _d.rotation.set(0, Math.atan2(fx, fz), 0); _d.scale.set(1, 1, 1); _d.updateMatrix(); v.im.setMatrixAt(v.k, _d.matrix); ims[v.im.uuid] = v.im;
+      _d.position.set(x, vp.y, z); _d.rotation.set(0, Math.atan2(fx, fz), 0); if (v.sc) _d.scale.copy(v.sc); else _d.scale.set(1, 1, 1); _d.updateMatrix(); v.im.setMatrixAt(v.k, _d.matrix); ims[v.im.uuid] = v.im;
       var hl = v.len / 2 + 0.01; pos[i * 6] = x + fx * hl; pos[i * 6 + 1] = vp.y + 0.06; pos[i * 6 + 2] = z + fz * hl; pos[i * 6 + 3] = x - fx * hl; pos[i * 6 + 4] = vp.y + 0.06; pos[i * 6 + 5] = z - fz * hl; }
     for (var key in ims) ims[key].instanceMatrix.needsUpdate = true;
     if (lampK > 0.01) carPts.geometry.attributes.position.needsUpdate = true; }
   var T = anim.train;
   if (T && RAIL_S){ if (T.wait > 0) T.wait -= dt; else { T.s += T.dir * 1.2 * dt; if (T.s > RAIL_S.L - 1 || T.s < 6){ T.s = clamp(T.s, 6, RAIL_S.L - 1); T.dir *= -1; T.wait = 14; } }
-    for (i = 0; i < 10; i++){ roadPoint(RAIL_S, clamp(T.s - T.dir * i * 0.6, 0, RAIL_S.L), vp); _d.position.set(vp.x, vp.y + 0.02, vp.z); _d.rotation.set(0, Math.atan2(vp.fx, vp.fz), 0); _d.scale.set(1, 1, 1); _d.updateMatrix(); T.im.setMatrixAt(i, _d.matrix); }
-    T.im.instanceMatrix.needsUpdate = true; }
+    for (i = 0; i < 10; i++){ roadPoint(RAIL_S, clamp(T.s - T.dir * i * 0.6, 0, RAIL_S.L), vp); _d.position.set(vp.x, vp.y + 0.02, vp.z); _d.rotation.set(0, Math.atan2(vp.fx * T.dir, vp.fz * T.dir), 0); _d.scale.copy(i ? T.kc : T.kl); _d.updateMatrix(); (i ? T.im : T.loco).setMatrixAt(i ? i - 1 : 0, _d.matrix); }
+    T.im.instanceMatrix.needsUpdate = true; T.loco.instanceMatrix.needsUpdate = true; }
   if (anim.birds){ var B = anim.birds; B.list.forEach(function(q, k){ q.a += q.sp * dt; var x = q.cx + Math.cos(q.a) * q.r, z = q.cz + Math.sin(q.a) * q.r; _d.position.set(x, q.h + 0.3 * Math.sin(ts * 0.7 + q.f), z);
       _d.rotation.set(0, Math.atan2(-Math.sin(q.a) * q.sp, Math.cos(q.a) * q.sp) + Math.PI / 2, 0); _d.scale.set(1.3, 0.3 + 1.2 * Math.abs(Math.sin(ts * 7 + q.f)), 1.3); _d.updateMatrix(); B.im.setMatrixAt(k, _d.matrix); });
     B.im.instanceMatrix.needsUpdate = true; }
@@ -251,7 +251,7 @@ function updateAnim(dt, ts){
 var clock = new THREE.Clock();
 function frame(now){
   requestAnimationFrame(frame);
-  var dt = Math.min(clock.getDelta(), 0.05), ts = clock.elapsedTime * (reduceMotion ? 0.3 : 1); frameN++;
+  var rawDt = clock.getDelta(), dt = Math.min(rawDt, 0.05), ts = clock.elapsedTime * (reduceMotion ? 0.3 : 1); frameN++;
   if (waterU) waterU.uTime.value = ts;
   if (Math.abs(tod - todTarget) > 0.003){ tod += (todTarget - tod) * Math.min(1, dt * 2.2); applyTod(tod); } else if (tod !== todTarget){ tod = todTarget; applyTod(tod); }
   updateAnim(dt * (reduceMotion ? 0.3 : 1), ts);
@@ -264,8 +264,19 @@ function frame(now){
   updateShadow(dist);
   updateDetail(PLAY.on && PL ? PL.x : controls.target.x, PLAY.on && PL ? PL.z : controls.target.z, PLAY.on || dist < 55);
   renderer.render(scene, camera);
-  updateLabels(dist); updateHud(dist); updateAudio(dt, dist);
+  updateLabels(dist); updateHud(dist); updateAudio(dt, dist); governor(rawDt);
 }
+
+/* ---------- bộ điều tốc: FPS thấp kéo dài thì hạ chất lượng từng bậc ---------- */
+// Bậc 1: giảm độ phân giải. Bậc 2: tắt bóng đổ. Bậc 3: bớt một nửa người đi bộ và ghi nhớ để lần sau dựng bản LITE.
+var GOV = { t:0, n:0, acc:0, level:0, wait:4 };
+function governor(d){ if (document.hidden || d <= 0 || d > 0.5) return; GOV.t += d; if (GOV.t < GOV.wait) return; GOV.acc += d; GOV.n++;
+  if (GOV.acc < 2.5) return; var fps = GOV.n / GOV.acc; GOV.acc = 0; GOV.n = 0;
+  if (fps >= 38 || GOV.level >= 3) return; GOV.level++; GOV.t = 0; GOV.wait = 3;
+  if (GOV.level === 1){ renderer.setPixelRatio(Math.max(1, renderer.getPixelRatio() * 0.7)); renderer.setSize(innerWidth, innerHeight); }
+  else if (GOV.level === 2){ renderer.shadowMap.enabled = false; scene.traverse(function(o){ if (o.material && o.material.needsUpdate !== undefined) o.material.needsUpdate = true; }); }
+  else { var C = anim.crowd; if (C) C.mesh.geometry.instanceCount = Math.floor(C.n / 2); try { if (!LITE) localStorage.setItem('nt-q', 'lite'); } catch (e){} }
+  console.info('[chất lượng] FPS ' + fps.toFixed(0) + ' → hạ xuống bậc ' + GOV.level); }
 
 /* ======================= BUILD SEQUENCE ======================= */
 async function build(){
@@ -295,7 +306,7 @@ async function build(){
   setupLM(); setupUI(); setupPlay();
   todTarget = tod = themeIsDark() ? 2 : 0; applyTod(tod); syncTimeBtn();
   computeHome(); setCam(homeTarget, homeDist, HOME_PHI, HOME_TH); controls.update(); setSpin(!reduceMotion);
-  window.__nt = { PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return keys; }, G:G, B:B, T:T, ROADS_S:ROADS_S, RAIL_S:RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:controls, setCam:setCam, audio:AU };
+  window.__nt = { PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return keys; }, G:G, B:B, T:T, ROADS_S:ROADS_S, RAIL_S:RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:controls, setCam:setCam, audio:AU, gov:GOV, lite:LITE };
   ready = true; loader.hidden = true; requestAnimationFrame(frame);
 }
 build().catch(function(e){ console.error(e); fail('Không dựng được bản đồ: ' + (e && e.message ? e.message : e)); });
