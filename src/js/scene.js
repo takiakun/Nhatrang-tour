@@ -57,7 +57,30 @@ function blobGeo(){ var g = new THREE.IcosahedronGeometry(1, 0), p = g.attribute
 var VCM = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.8 });
 var VCM2 = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.85, side:THREE.DoubleSide });
 
-var CHX = 4, CHZ = 4, _d = new THREE.Object3D(), _c = new THREE.Color();
+/* ---------- mô hình Kenney (dữ liệu trong models.js) ---------- */
+// Geometry chuẩn hoá: chân đế x, z ∈ [−0.5, 0.5], y ∈ [0, 1] => đặt bằng scale (rộng, cao, sâu) như khối hộp.
+// userData.size = kích thước gốc của mô hình, để tính tỷ lệ cao tự nhiên.
+var modelCache = {};
+function b64arr(s, T){ var b = atob(s), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return new T(u.buffer); }
+function modelGeo(id){ if (modelCache[id]) return modelCache[id];
+  var m = MODEL_DATA[id], q = b64arr(m.p, Int16Array), n = b64arr(m.n, Int8Array), c = b64arr(m.c, Uint8Array), mk = m.m ? b64arr(m.m, Uint8Array) : null, N = q.length / 3;
+  var P = new Float32Array(N * 3), NN = new Float32Array(N * 3), CC = new Float32Array(N * 3), MK = new Float32Array(N);
+  for (var k = 0; k < N * 3; k++){ var a = k % 3, t = (q[k] + 32768) / 65535; P[k] = a === 1 ? t : t - 0.5; NN[k] = n[k] / 127; var v = c[k] / 255; CC[k] = v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
+  if (mk) for (k = 0; k < N; k++) MK[k] = mk[k] / 255;
+  var sx = m.size[0], sy = m.size[1], sz = m.size[2];
+  for (k = 0; k < N; k++){ var nx = NN[k * 3] / sx, ny = NN[k * 3 + 1] / sy, nz = NN[k * 3 + 2] / sz, l = Math.hypot(nx, ny, nz) || 1; NN[k * 3] = nx / l; NN[k * 3 + 1] = ny / l; NN[k * 3 + 2] = nz / l; }
+  var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.BufferAttribute(NN, 3)); g.setAttribute('color', new THREE.BufferAttribute(CC, 3)); g.setAttribute('aMask', new THREE.BufferAttribute(MK, 1));
+  g.setIndex(new THREE.BufferAttribute(b64arr(m.i, Uint16Array), 1)); g.computeBoundingSphere(); g.userData.size = [sx, sy, sz];
+  return (modelCache[id] = g); }
+// Vật liệu cho mô hình: màu đỉnh × màu từng căn (instanceColor), riêng phần mái (aMask) × màu mái (aRoof).
+// Pháp tuyến được scale lại trong modelGeo theo kích thước gốc nên chỉ cần scale instance theo đúng tỷ lệ đó.
+function kitMat(){ var m = glowMat('#ffffff', '#ffb35c', 0, 0.16); m.vertexColors = true; m.roughness = 0.78;
+  m.onBeforeCompile = function(sh){ sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aMask;\nattribute vec3 aRoof;')
+    .replace('#include <color_vertex>', 'vColor = color * mix(instanceColor, aRoof, aMask);'); };
+  m.customProgramCacheKey = function(){ return 'kit'; };
+  return m; }
+
+var CHX = 4, CHZ = 4, _d = new THREE.Object3D(), _c = new THREE.Color(), _c2 = new THREE.Color();
 function chunkOf(x, z){ return clamp(Math.floor((z - BZ0) / BD * CHZ), 0, CHZ - 1) * CHX + clamp(Math.floor((x - BX0) / BW * CHX), 0, CHX - 1); }
 function instChunks(geo, material, items, setter, opt){ opt = opt || {};
   var buckets = []; for (var i = 0; i < CHX * CHZ; i++) buckets.push([]);
@@ -65,8 +88,9 @@ function instChunks(geo, material, items, setter, opt){ opt = opt || {};
   var out = [];
   buckets.forEach(function(list){ if (!list.length) return;
     var g = geo.clone(), im = new THREE.InstancedMesh(g, material, list.length), mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+    var roof = opt.roof ? new Float32Array(list.length * 3) : null; if (roof) g.setAttribute('aRoof', new THREE.InstancedBufferAttribute(roof, 3));
     list.forEach(function(it, k){ _d.position.set(0, 0, 0); _d.rotation.set(0, 0, 0); _d.scale.set(1, 1, 1); _c.setRGB(1, 1, 1); setter(_d, it, _c); _d.updateMatrix();
-      im.setMatrixAt(k, _d.matrix); im.setColorAt(k, _c); var p = _d.position; mn[0] = Math.min(mn[0], p.x); mn[1] = Math.min(mn[1], p.y); mn[2] = Math.min(mn[2], p.z); mx[0] = Math.max(mx[0], p.x); mx[1] = Math.max(mx[1], p.y); mx[2] = Math.max(mx[2], p.z); });
+      im.setMatrixAt(k, _d.matrix); im.setColorAt(k, _c); if (roof){ _c2.set(opt.roof(it)); roof[k * 3] = _c2.r; roof[k * 3 + 1] = _c2.g; roof[k * 3 + 2] = _c2.b; } var p = _d.position; mn[0] = Math.min(mn[0], p.x); mn[1] = Math.min(mn[1], p.y); mn[2] = Math.min(mn[2], p.z); mx[0] = Math.max(mx[0], p.x); mx[1] = Math.max(mx[1], p.y); mx[2] = Math.max(mx[2], p.z); });
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3((mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2), Math.hypot(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) / 2 + (opt.pad || 4));
     im.castShadow = opt.cast !== false; im.receiveShadow = opt.receive !== false;
     im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
@@ -260,8 +284,11 @@ function drawOverlays(ctx, isMask){
   ctx.strokeStyle = '#e9e1cc'; ctx.lineWidth = 0.3; strokeLine(ctx, prom);
   ctx.fillStyle = '#e2dac8'; fillPoly(ctx, plaza);
   ctx.strokeStyle = '#d5ccb7'; ctx.lineWidth = 0.05; for (var q = -1.5; q <= 1.5; q += 0.5){ strokeLine(ctx, [[coastX(zT + q) - 2.2, zT + q], [coastX(zT + q) - 0.85, zT + q]]); }
-  ROADS_S.forEach(function(R){ landRuns(R.pts).forEach(function(run){ ctx.strokeStyle = '#8a847a'; ctx.lineWidth = R.w + 0.12; strokeLine(ctx, run); ctx.strokeStyle = '#9a9c9f'; ctx.lineWidth = R.w; strokeLine(ctx, run);
-    ctx.setLineDash([0.26, 0.3]); ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 0.035; strokeLine(ctx, run); ctx.setLineDash([]); }); });
+  // Đường chính: vỉa hè, bó vỉa, lòng đường, hai vạch biên liền, vạch giữa nét đứt (đường rộng thì chia làn)
+  ROADS_S.forEach(function(R){ landRuns(R.pts).forEach(function(run){ ctx.strokeStyle = '#dcd5c6'; ctx.lineWidth = R.w + 0.26; strokeLine(ctx, run); ctx.strokeStyle = '#a59e90'; ctx.lineWidth = R.w + 0.07; strokeLine(ctx, run);
+    ctx.strokeStyle = '#86898c'; ctx.lineWidth = R.w; strokeLine(ctx, run); ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = R.w - 0.07; strokeLine(ctx, run); ctx.strokeStyle = '#86898c'; ctx.lineWidth = R.w - 0.11; strokeLine(ctx, run);
+    if (R.w > 0.5){ ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 0.045; strokeLine(ctx, run); ctx.strokeStyle = '#86898c'; ctx.lineWidth = 0.015; strokeLine(ctx, run); }
+    else { ctx.setLineDash([0.26, 0.3]); ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 0.035; strokeLine(ctx, run); ctx.setLineDash([]); } }); });
   landRuns(RAIL_S.pts).forEach(function(run){ ctx.strokeStyle = '#a89c88'; ctx.lineWidth = 0.46; strokeLine(ctx, run); ctx.setLineDash([0.05, 0.07]); ctx.strokeStyle = '#6c5a48'; ctx.lineWidth = 0.3; strokeLine(ctx, run); ctx.setLineDash([]); ctx.strokeStyle = '#4f4b47'; ctx.lineWidth = 0.06; strokeLine(ctx, run); });
   ctx.fillStyle = '#4fc3dd'; [[12.2196,109.2399,0.9,0.45],[12.2176,109.2424,0.6,0.38],[12.2206,109.2448,0.7,0.34],[12.1792,109.2318,0.5,0.3]].forEach(function(p){ var c = P(p[0], p[1]); ctx.fillRect(c[0] - p[2] / 2, c[1] - p[3] / 2, p[2], p[3]); });
 }
@@ -459,15 +486,37 @@ function buildCity(B){
   var tubeMat = bmat(winT, 0.75), towerMat = bmat(winTw, 1.0), midMat = bmat(winM, 0.8);
   TUBE_F.forEach(function(f){ instChunks(boxUV(1, f / 2, true), tubeMat, B.tubes.filter(function(t){ return t.f === f; }), function(d, it, c){ d.position.set(it.x, it.y, it.z); d.rotation.y = it.r; d.scale.set(it.w, it.h, it.d); c.set(it.c); }); });
   TOWER_F.forEach(function(f){ instChunks(boxUV(1.5, f / 4, false), towerMat, B.towers.filter(function(t){ return t.f === f; }), function(d, it, c){ d.position.set(it.x, it.y, it.z); d.rotation.y = it.r; d.scale.set(it.w, it.h, it.d); c.set(it.c); }, { pad:8 }); });
-  MID_F.forEach(function(f){ instChunks(boxUV(1.5, f / 4, false), midMat, B.mids.filter(function(t){ return t.f === f; }), function(d, it, c){ d.position.set(it.x, it.y, it.z); d.rotation.y = it.r; d.scale.set(it.w, it.h, it.d); c.set(it.c); }); });
+  // Chung cư thấp tầng giữa khối phố: mô hình Kenney Commercial, kéo theo số tầng
+  var kit = kitMat(), BLOCKS = ['block-b','block-c','block-d','block-e'];
+  BLOCKS.forEach(function(id, bi){ instChunks(modelGeo(id), kit, B.mids.filter(function(t){ return ((ih(t.x * 13, t.z * 7) * BLOCKS.length) | 0) === bi; }), function(d, it, c){
+    d.position.set(it.x, it.y, it.z); d.rotation.y = it.r; d.scale.set(it.w, it.h, it.d); c.set(it.c); }, { roof:function(it){ return '#7fb08a'; } }); });
   var bx = new THREE.BoxGeometry(1, 1, 1); bx.translate(0, 0.5, 0);
+  // Mặt tiền nhà ống: bảng hiệu, mái hiên di động (bạt) che tầng trệt, "tum" cầu thang và mái tôn trên sân thượng.
+  function front(d, it, out){ d.position.set(it.x, it.y, it.z); d.rotation.y = it.r + (it.fc > 0 ? 0 : Math.PI); d.translateZ(it.d / 2 + out); }
+  var SIGN_C = ['#d7263d','#f4b400','#1b6fd1','#1f9d55','#e8590c','#ffffff','#c2185b','#00838f'], AWN_C = ['#e03131','#1c7ed6','#2f9e44','#f08c00','#5f3dc4','#0b7285'];
+  var shop = B.tubes.filter(function(t){ return ih(t.x * 41, t.z * 23) < 0.72; });
+  instChunks(bx, mat('#ffffff', { roughness:0.6 }), shop, function(d, it, c){ front(d, it, 0.006); d.position.y += FLOOR * 0.78; d.scale.set(it.w * 0.86, FLOOR * 0.3, 0.012); c.set(SIGN_C[(ih(it.x * 7, it.z * 5) * SIGN_C.length) | 0]); }, { cast:false });
+  var awnGeo = new THREE.BoxGeometry(1, 1, 1); awnGeo.translate(0, 0, 0.5);
+  instChunks(awnGeo, mat('#ffffff', { roughness:0.85 }), shop.filter(function(t){ return ih(t.x * 13, t.z * 37) < 0.6; }), function(d, it, c){ front(d, it, 0); d.position.y += FLOOR * 0.62; d.rotateX(0.38); d.scale.set(it.w * 0.94, 0.006, 0.075); c.set(AWN_C[(ih(it.x * 3, it.z * 11) * AWN_C.length) | 0]); });
+  // Dù hàng rong trên vỉa hè trước một số cửa hàng (mô hình Kenney, tán đổi màu qua aRoof)
+  var DU_C = ['#e03131','#1c7ed6','#f08c00','#2f9e44','#ffffff'], vend = shop.filter(function(t){ return ih(t.x * 59, t.z * 43) < 0.12; });
+  ['parasol-a','parasol-b'].forEach(function(id, k){ instChunks(modelGeo(id), kitMat(), vend.filter(function(t){ return (ih(t.x * 7, t.z * 71) < 0.5) === (k === 0); }), function(d, it, c){
+    front(d, it, 0.05); d.translateX((ih(it.x * 3, it.z * 9) - 0.5) * it.w * 0.6); d.scale.set(0.07, 0.065, 0.07); }, { roof:function(it){ return DU_C[(ih(it.x * 11, it.z * 13) * DU_C.length) | 0]; }, cast:false }); });
+  var tum = B.tubes.filter(function(t){ return t.f >= 3 && ih(t.x * 17, t.z * 29) < 0.45; });
+  instChunks(bx, mat('#ffffff'), tum, function(d, it, c){ d.position.set(it.x, it.y + it.h, it.z); d.rotation.y = it.r + (it.fc > 0 ? 0 : Math.PI); d.translateZ(-it.d * 0.22); d.scale.set(it.w * 0.62, FLOOR * 0.72, it.d * 0.34); c.set(it.c); });
+  var tole = new THREE.BoxGeometry(1, 1, 1); tole.translate(0, 0.5, 0);
+  instChunks(tole, mat('#ffffff', { roughness:0.5, metalness:0.25 }), tum, function(d, it, c){ d.position.set(it.x, it.y + it.h + FLOOR * 0.72, it.z); d.rotation.y = it.r + (it.fc > 0 ? 0 : Math.PI); d.translateZ(-it.d * 0.22); d.rotateX(0.12); d.scale.set(it.w * 0.7, 0.008, it.d * 0.4); c.set(['#c0504d','#4f81bd','#9aa3a8','#c0504d'][(ih(it.x * 5, it.z * 3) * 4) | 0]); });
   instChunks(bx, mat('#9aa3a8'), B.towers, function(d, it){ d.position.set(it.x, it.y + it.h, it.z); d.rotation.y = it.r; d.scale.set(it.w * 0.55, 0.12, it.d * 0.45); });
   instChunks(bx, mat('#54c6e0', { roughness:0.2 }), B.towers.filter(function(t){ return t.pool; }), function(d, it){ d.position.set(it.x, it.y + it.h, it.z); d.rotation.y = it.r; d.translateZ(it.d * 0.22); d.scale.set(it.w * 0.6, 0.03, it.d * 0.3); }, { cast:false });
   instChunks(tankGeo, mat('#e3e7ec', { metalness:0.6, roughness:0.3 }), B.tanks, function(d, it){ d.position.set(it.x, it.y, it.z); });
-  var houseMat = glowMat('#ffffff', '#ffb35c', 0, 0.16);
-  instChunks(bx, houseMat, B.villas, function(d, it, c){ d.position.set(it.x, it.y, it.z); d.rotation.y = it.r; d.scale.set(it.w, it.h, it.d); c.set(it.c); });
-  var roofGeo = new THREE.ConeGeometry(0.75, 1, 4); roofGeo.rotateY(Math.PI / 4); roofGeo.translate(0, 0.5, 0);
-  instChunks(roofGeo, mat('#ffffff', { flatShading:true }), B.villas.filter(function(v){ return v.roof; }), function(d, it, c){ d.position.set(it.x, it.y + it.h, it.z); d.rotation.y = it.r; d.scale.set(it.w, 0.16 + it.w * 0.25, it.d); c.set(it.rc); });
+  // Nhà vườn, biệt thự: mô hình Kenney Suburban. Giữ tỷ lệ cao tự nhiên của mô hình (nhân VH như cách nhà được phóng đại),
+  // quay mặt tiền ra đường (fc), mái lấy màu rc của từng căn.
+  var PITCH = ['house-a','house-c','house-g','house-h','house-i','house-j','house-k','house-l','house-m','house-r','house-s','house-u'], FLAT = ['house-o','house-p','house-q'], VH = 1.6;
+  function villaSet(ids, list){ ids.forEach(function(id, bi){ var sz = modelGeo(id).userData.size;
+    instChunks(modelGeo(id), kit, list.filter(function(t){ return ((ih(t.x * 29, t.z * 11) * ids.length) | 0) === bi; }), function(d, it, c){
+      d.position.set(it.x, it.y, it.z); d.rotation.y = it.r + (it.fc > 0 ? 0 : Math.PI);
+      var kx = it.w / sz[0], kz = it.d / sz[2]; d.scale.set(it.w, sz[1] * Math.sqrt(kx * kz) * VH, it.d); c.set(it.c); }, { roof:function(it){ return it.rc; } }); }); }
+  villaSet(PITCH, B.villas.filter(function(v){ return v.roof; })); villaSet(FLAT, B.villas.filter(function(v){ return !v.roof; }));
 }
 
 function buildVegetation(T, B){

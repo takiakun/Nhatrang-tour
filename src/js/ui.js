@@ -149,6 +149,7 @@ function pickAt(e){ setNdc(e);
 function setupUI(){
   makeLabels(); syncLabelsBtn();
   btnLabels.addEventListener('click', toggleLabels);
+  document.getElementById('btnSound').addEventListener('click', function(){ setSound(!AU.want); }); syncSoundBtn(); armAudio();
   addEventListener('keydown', function(e){ if ((e.key === 'l' || e.key === 'L') && !e.metaKey && !e.ctrlKey && !e.altKey && !(e.target.closest && e.target.closest('input,textarea'))) toggleLabels(); });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function(){ labels.forEach(function(l){ l.w = 0; }); });
   btnTime.addEventListener('click', function(){ todUser = true; todTarget = (Math.round(todTarget) + 1) % 3; if (reduceMotion){ tod = todTarget; applyTod(tod); } syncTimeBtn(); });
@@ -191,10 +192,12 @@ function setupPlay(){
   addEventListener('keydown', function(e){ if (!PLAY.on) return; if (e.target.closest && e.target.closest('input,textarea')) return;
     if (MOVE[e.code]){ keys[e.code] = true; e.preventDefault(); }
     if (e.code === 'KeyE' && !e.repeat){ toggleMount(); e.preventDefault(); }
+    if (e.code === 'KeyH' && !e.repeat){ honk(); e.preventDefault(); }
     if (e.code === 'Escape' && current < 0) exitPlay(); }, true);
   addEventListener('keyup', function(e){ if (MOVE[e.code]) keys[e.code] = false; });
   addEventListener('blur', function(){ keys = {}; });
   document.getElementById('btnMount').addEventListener('click', function(){ toggleMount(); });
+  document.getElementById('btnHorn').addEventListener('click', honk);
   var bb = document.getElementById('btnBoost');
   ['pointerdown'].forEach(function(ev){ bb.addEventListener(ev, function(e){ boostBtn = true; bb.setPointerCapture(e.pointerId); e.preventDefault(); }); });
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function(ev){ bb.addEventListener(ev, function(){ boostBtn = false; }); });
@@ -261,7 +264,7 @@ function frame(now){
   updateShadow(dist);
   updateDetail(PLAY.on && PL ? PL.x : controls.target.x, PLAY.on && PL ? PL.z : controls.target.z, PLAY.on || dist < 55);
   renderer.render(scene, camera);
-  updateLabels(dist); updateHud(dist);
+  updateLabels(dist); updateHud(dist); updateAudio(dt, dist);
 }
 
 /* ======================= BUILD SEQUENCE ======================= */
@@ -292,7 +295,7 @@ async function build(){
   setupLM(); setupUI(); setupPlay();
   todTarget = tod = themeIsDark() ? 2 : 0; applyTod(tod); syncTimeBtn();
   computeHome(); setCam(homeTarget, homeDist, HOME_PHI, HOME_TH); controls.update(); setSpin(!reduceMotion);
-  window.__nt = { PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return keys; }, G:G, B:B, T:T, ROADS_S:ROADS_S, RAIL_S:RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer };
+  window.__nt = { PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return keys; }, G:G, B:B, T:T, ROADS_S:ROADS_S, RAIL_S:RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:controls, setCam:setCam, audio:AU };
   ready = true; loader.hidden = true; requestAnimationFrame(frame);
 }
 build().catch(function(e){ console.error(e); fail('Không dựng được bản đồ: ' + (e && e.message ? e.message : e)); });

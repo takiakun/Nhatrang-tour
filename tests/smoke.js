@@ -25,7 +25,13 @@ const { chromium } = require('playwright'); const fs = require('fs'); const path
     await page.click('#btnPlay'); await page.waitForTimeout(1900); await page.evaluate(() => window.__nt.toggleMount());
     if (!vp.mobile){ await page.keyboard.down('KeyW'); await page.waitForTimeout(2000); await page.keyboard.up('KeyW'); }
     const pl = await page.evaluate(() => { const P = window.__nt.PL; return P.mode + ' @ ' + P.x.toFixed(1) + ',' + P.z.toFixed(1); });
-    const ok = !r.err && errs.length === 0 && r.scrollW <= vp.w;
+    // âm thanh: đã bật sau thao tác bấm nút, có tín hiệu ra ở master (đo RMS qua AnalyserNode), bấm còi không lỗi
+    if (!vp.mobile) await page.keyboard.press('KeyH');
+    const snd = await page.evaluate(async () => { const A = window.__nt.audio; if (!A.ctx) return { on:false };
+      const an = A.ctx.createAnalyser(); A.master.connect(an); await new Promise(r => setTimeout(r, 800)); const d = new Float32Array(an.fftSize); an.getFloatTimeDomainData(d);
+      let s = 0; for (const v of d) s += v * v; return { on:A.on, state:A.ctx.state, rms:+Math.sqrt(s / d.length).toFixed(4) }; });
+    r.sound = snd;
+    const ok = !r.err && errs.length === 0 && r.scrollW <= vp.w && snd.on && snd.rms > 0.001;
     if (!ok) fail++;
     console.log((ok ? 'OK  ' : 'FAIL') + ' ' + vp.name + ' build ' + (Date.now() - t0) + 'ms', JSON.stringify(r), 'player:', pl, errs.length ? '\n  errors: ' + errs.join(' | ') : '');
     await ctx.close(); }
