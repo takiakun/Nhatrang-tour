@@ -86,7 +86,7 @@ for (const el of roads.values()){ const t = el.tags, c = HW.indexOf(link(t.highw
   if (t.highway === 'service' && !['alley', undefined].includes(t.service)) continue;   // bỏ bãi đỗ, lối vào nhà
   const pts = el.geometry.map(g => P(g.lat, g.lon)); if (!pts.some(p => inBoard(p[0], p[1], 0))) continue;
   let ni = -1; if (t.name){ ni = names.indexOf(t.name); if (ni < 0){ names.push(t.name); ni = names.length - 1; } }
-  R.push({ c, l:Math.min(6, +t.lanes || 0), ni, b:t.bridge === 'yes' ? 1 : 0, pts }); }
+  R.push({ c, l:Math.min(6, +t.lanes || 0), ni, b:(t.bridge && t.bridge !== 'no' ? 1 : 0) | (t.oneway === 'yes' || t.oneway === '-1' || /_link$/.test(t.highway) && t.oneway !== 'no' ? 2 : 0), pts }); }   // cờ: 1 cầu, 2 một chiều (nửa đường đôi)
 // ---- nhà: đa giác chân đế + số tầng / chiều cao nếu có
 const B = [];
 for (const el of builds.values()){ const t = el.tags, g = el.geometry; if (g.length < 4) continue;
