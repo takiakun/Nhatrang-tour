@@ -78,4 +78,6 @@ Cách khác không cần Actions: build xong thì chép `dist/index.html` vào t
 
 ## Ghi công
 
+Địa hình: Copernicus DEM GLO-30 (© DLR e.V. 2010-2014 và © Airbus Defence and Space GmbH 2014-2018, cấp phép bởi ESA/Copernicus). Lớp phủ mặt đất: ESA WorldCover 10 m 2021 v200 (© ESA WorldCover project, chứa dữ liệu Copernicus Sentinel đã chỉnh sửa, CC BY 4.0). Thời tiết: [Open-Meteo](https://open-meteo.com) (CC BY 4.0).
+
 Mô hình của [Kenney](https://www.kenney.nl), giấy phép CC0: City Kit Suburban, City Kit Commercial (nhà, dù che), Car Kit (ô tô), Watercraft Kit (thuyền, tàu), Train Kit (tàu hỏa), Mini Characters (nhân vật chính, đám đông).

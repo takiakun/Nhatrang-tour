@@ -25,6 +25,9 @@ const { chromium } = require('playwright'); const fs = require('fs'); const path
     // vào chế độ lái xe, lên xe, chạy 2 giây
     await page.click('#btnPlay'); await page.waitForTimeout(1900); await page.evaluate(() => window.__nt.toggleMount());
     if (!vp.mobile){ await page.keyboard.down('KeyW'); await page.waitForTimeout(2000); await page.keyboard.up('KeyW'); }
+    // điện thoại: nút Tăng ga là công tắc (chạm bật, chạm lần nữa tắt)
+    if (vp.mobile){ await page.tap('#btnBoost'); const on = await page.getAttribute('#btnBoost', 'aria-pressed'); await page.tap('#btnBoost'); const off = await page.getAttribute('#btnBoost', 'aria-pressed');
+      if (on !== 'true' || off !== 'false') errs.push('nút Tăng ga không bật/tắt được: ' + on + '/' + off); }
     const pl = await page.evaluate(() => { const P = window.__nt.PL; return P.mode + ' @ ' + P.x.toFixed(1) + ',' + P.z.toFixed(1); });
     // âm thanh: đã bật sau thao tác bấm nút, có tín hiệu ra ở master (đo RMS qua AnalyserNode), bấm còi không lỗi
     if (!vp.mobile) await page.keyboard.press('KeyH');

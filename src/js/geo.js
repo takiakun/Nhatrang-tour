@@ -133,11 +133,48 @@ function mainlandH(x, z){
   if (m > 0) h += m * smooth(0.6, 4.5, d);
   return h;
 }
+/* ---------- địa hình thật (terrain-data.js, sinh bởi tools/fetch-terrain.js) ---------- */
+// Lưới độ cao Copernicus 100 m (m), khoảng cách tới đất thật gần nhất (đơn vị bản đồ), lớp phủ ESA WorldCover 50 m.
+// Không có dữ liệu (ví dụ khi tools/ chạy geo.js trong Node) thì dùng địa hình ước lượng như trước.
+var TR = (function(){ if (typeof TERRAIN_DATA === 'undefined') return null; var T = TERRAIN_DATA;
+  function bytes(s){ var b = atob(s), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+  var raw = new Int16Array(bytes(T.elev).buffer), N = T.nx * T.nz, e = new Float32Array(N), dist = new Float32Array(N);
+  for (var i = 0; i < N; i++){ e[i] = raw[i] / 10; dist[i] = e[i] > 0.5 ? 0 : 1e9; }
+  // khoảng cách chamfer 2 lượt (đủ chính xác để làm độ sâu biển dần dần)
+  var nx = T.nx, nz = T.nz, D1 = T.step, D2 = T.step * 1.4142;
+  for (var j = 0; j < nz; j++) for (i = 0; i < nx; i++){ var k = j * nx + i, v = dist[k];
+    if (i > 0) v = Math.min(v, dist[k - 1] + D1); if (j > 0){ v = Math.min(v, dist[k - nx] + D1); if (i > 0) v = Math.min(v, dist[k - nx - 1] + D2); if (i < nx - 1) v = Math.min(v, dist[k - nx + 1] + D2); } dist[k] = v; }
+  for (j = nz - 1; j >= 0; j--) for (i = nx - 1; i >= 0; i--){ k = j * nx + i; v = dist[k];
+    if (i < nx - 1) v = Math.min(v, dist[k + 1] + D1); if (j < nz - 1){ v = Math.min(v, dist[k + nx] + D1); if (i < nx - 1) v = Math.min(v, dist[k + nx + 1] + D2); if (i > 0) v = Math.min(v, dist[k + nx - 1] + D2); } dist[k] = v; }
+  var rl = bytes(T.lc), lc = new Uint8Array(T.lcx * T.lcz), p = 0; for (i = 0; i < rl.length; i += 2){ lc.fill(T.lcClasses[rl[i + 1]], p, p + rl[i]); p += rl[i]; }
+  return { nx:nx, nz:nz, step:T.step, e:e, dist:dist, lc:lc, lcx:T.lcx, lcz:T.lcz, lcStep:T.lcStep }; })();
+function trSample(arr, x, z){ var gx = clamp((x - BX0) / TR.step, 0, TR.nx - 1.001), gz = clamp((z - BZ0) / TR.step, 0, TR.nz - 1.001), i = gx | 0, j = gz | 0, u = gx - i, v = gz - j, k = j * TR.nx + i;
+  return (arr[k] * (1 - u) + arr[k + 1] * u) * (1 - v) + (arr[k + TR.nx] * (1 - u) + arr[k + TR.nx + 1] * u) * v; }
+// mã lớp phủ ESA WorldCover: 10 cây, 20 cây bụi, 30 cỏ, 40 ruộng, 50 nhà cửa, 60 đất trống, 80 nước, 90 đất ngập, 95 rừng ngập mặn; 0 = không có dữ liệu
+function lcAt(x, z){ if (!TR) return 0; var i = clamp(Math.round((x - BX0) / TR.lcStep), 0, TR.lcx - 1), j = clamp(Math.round((z - BZ0) / TR.lcStep), 0, TR.lcz - 1); return TR.lc[j * TR.lcx + i]; }
+var HON_DO = null;
+// Đất liền giữ đường bờ ước lượng (khớp với đường Trần Phú, bãi biển, khu phố) và nền phố phẳng; đồi núi dùng độ cao thật,
+// bỏ phần dưới ~15 m vì Copernicus là mô hình bề mặt (DSM) có cả mái nhà, tán cây. Đảo lấy hình dạng và độ cao thật;
+// Hòn Đỏ quá nhỏ so với lưới 100 m nên giữ hình ước lượng. Biển sâu dần theo khoảng cách tới đất gần nhất.
+function realH(x, z){
+  var d = coastX(z) - x, e = trSample(TR.e, x, z), h;
+  if (d >= 0){ h = 0.05 + 0.37 * smooth(0, 1.6, d) + 0.12 * (fbm(x * 0.05 + 11, z * 0.05 - 3) - 0.3) * smooth(2, 8, d);
+    var hl = 0; for (var i = 0; i < HILLS.length; i++){ var q = HILLS[i], dx = x - q[0], dz = z - q[1], t = (dx * dx + dz * dz) / (q[2] * q[2]); if (t < 1){ var k = 1 - t; hl += q[3] * k * k; } }
+    h += Math.max(hl, VE * Math.max(0, e - 15) * smooth(15, 45, e)) * smooth(0.6, 4.5, d); }   // đồi nhỏ có địa danh (Tháp Bà, Nhà thờ Núi…) giữ dáng ước lượng
+  else if (d < -3 && e > 0.5) h = 0.05 + 0.33 * smooth(0.5, 6, e) + VE * Math.max(0, e - 4) * (0.9 + 0.2 * fbm(x * 0.2, z * 0.2));
+  else { var sd = Math.min(-d, trSample(TR.dist, x, z)); h = -0.24 - Math.min(sd, 40) * 0.15 * (0.7 + 0.6 * fbm(x * 0.02 + 3, z * 0.02)) - fbm(x * 0.03 + 7, z * 0.03) * 0.5 * smooth(0, 3, sd); }
+  if (!HON_DO) HON_DO = ISLANDS.filter(function(I){ return I.id === 'hon-do'; })[0];
+  var hd = islandH(x, z, HON_DO); if (hd > h) h = hd;
+  return h; }
 function H(x, z){
+  if (TR) return carveH(x, z, realH(x, z));
   var h = mainlandH(x, z);
+  for (var i = 0; i < ISLANDS.length; i++){ var v = islandH(x, z, ISLANDS[i]); if (v > h) h = v; }
+  return carveH(x, z, h); }
+// sông và bãi đáp (dùng chung cho cả địa hình thật lẫn ước lượng)
+function carveH(x, z, h){
   var rs = riverS(x, z);
   if (rs < 2.4 && h > -0.7){ var carve = lerp(-0.62, h, smooth(-0.3, 2.2, rs)); if (carve < h) h = carve; }
-  for (var i = 0; i < ISLANDS.length; i++){ var v = islandH(x, z, ISLANDS[i]); if (v > h) h = v; }
   for (var j = 0; j < PADS.length; j++){ var p = PADS[j], dd = Math.hypot(x - p[0], z - p[1]); if (dd < p[2] + 3) h = lerp(h, p[3], smooth(p[2] + 3, p[2], dd)); }
   return h;
 }
@@ -188,7 +225,7 @@ var RAIL = LLs([[12.3005,109.1818],[12.2900,109.1812],[12.2780,109.1812],[12.270
 /* ---------- height grid ---------- */
 function buildGrid(cell){
   var GX = Math.round(BW / cell) + 1, GZ = Math.round(BD / cell) + 1, cx = BW / (GX - 1), cz = BD / (GZ - 1), N = GX * GZ;
-  var h = new Float32Array(N), n = new Float32Array(N), zone = new Uint8Array(N), slope = new Float32Array(N), sea = new Uint8Array(N);
+  var h = new Float32Array(N), n = new Float32Array(N), zone = new Uint8Array(N), slope = new Float32Array(N), sea = new Uint8Array(N), lcz = new Uint8Array(N);
   for (var j = 0; j < GZ; j++){ var z = BZ0 + j * cz; for (var i = 0; i < GX; i++){ var x = BX0 + i * cx, k = j * GX + i; h[k] = H(x, z); n[k] = fbm(x * 0.045 + 31, z * 0.045 - 17); } }
   for (j = 0; j < GZ; j++) for (i = 0; i < GX; i++){ k = j * GX + i;
     var hl = h[k - (i > 0 ? 1 : 0)], hr = h[k + (i < GX - 1 ? 1 : 0)], hu = h[k - (j > 0 ? GX : 0)], hd = h[k + (j < GZ - 1 ? GX : 0)];
@@ -199,8 +236,11 @@ function buildGrid(cell){
     var di = districtAt(x, z);
     if (di >= 0 && slope[k] < 0.4 && hh < 2.4){ zone[k] = 10 + di; continue; }
     if (inPonds(x, z) && slope[k] < 0.25){ zone[k] = 3; continue; }
-    zone[k] = (d > 3 && hh < 1.5 && slope[k] < 0.14 && n[k] > 0.3) ? 2 : 1; } }
-  var G = { GX:GX, GZ:GZ, cx:cx, cz:cz, h:h, n:n, zone:zone, slope:slope, sea:sea };
+    if (TR){ var c = lcAt(x, z); lcz[k] = c;   // ruộng, ao đầm theo lớp phủ thật
+      zone[k] = (c === 40 && slope[k] < 0.2 && hh < 2) ? 2 : ((c === 80 || c === 90) && d > 3 && hh < 1.5 && slope[k] < 0.25 ? 3 : 1); }
+    else zone[k] = (d > 3 && hh < 1.5 && slope[k] < 0.14 && n[k] > 0.3) ? 2 : 1; } }
+  var G = { GX:GX, GZ:GZ, cx:cx, cz:cz, h:h, n:n, zone:zone, slope:slope, sea:sea, lc:lcz };
+  G.lcAt = function(x, z){ return lcz[G.idx(x, z)]; };
   G.hAt = function(x, z){ var gx = (x - BX0) / cx, gz = (z - BZ0) / cz; if (gx < 0) gx = 0; if (gz < 0) gz = 0; if (gx > GX - 1.001) gx = GX - 1.001; if (gz > GZ - 1.001) gz = GZ - 1.001;
     var i0 = gx | 0, j0 = gz | 0, fx = gx - i0, fz = gz - j0, k0 = j0 * GX + i0;
     return (h[k0] * (1 - fx) + h[k0 + 1] * fx) * (1 - fz) + (h[k0 + GX] * (1 - fx) + h[k0 + GX + 1] * fx) * fz; };
@@ -216,13 +256,14 @@ function hex3(h){ return [parseInt(h.substr(1, 2), 16), parseInt(h.substr(3, 2),
 var PAL = { deep:hex3('#2d6a83'), shoal:hex3('#b7d1a9'), wet:hex3('#cbb88a'), sand:hex3('#eddcab'), sand2:hex3('#e0cb95'),
   grass:hex3('#a7c36f'), grass2:hex3('#86b25b'), scrub:hex3('#b2aa6c'), forest:hex3('#5b9046'), forest2:hex3('#3b7335'), rock:hex3('#9e937f'), rock2:hex3('#bcb19c'),
   street:hex3('#96989a'), walk:hex3('#dcd5c6'), curb:hex3('#a59e90'), mark:hex3('#f4f1e8'), lane:hex3('#cdc3a2'), urban:hex3('#d2ccbe'), lawn:hex3('#94c867'), path:hex3('#ece4d0'), bund:hex3('#c4ba8b'), dike:hex3('#c8b98e'), village:hex3('#b7b27c') };
+var LC_TINT = { 10:[PAL.forest, 0.55], 20:[PAL.scrub, 0.45], 30:[PAL.grass, 0.35], 50:[PAL.urban, 0.55], 60:[PAL.rock2, 0.5], 90:[PAL.wet, 0.4], 95:[PAL.forest2, 0.6] };
 var URB = ['#d6d0c3','#cbc4b5','#ddd7cb','#c2c7b4','#cdbfaa','#d9d3c4','#b8c2a8','#c9c9c2'].map(hex3);
 var RICE = ['#9cc95a','#93c257','#a6cb60','#8fbd55','#b2cd66','#9fc45c','#c4c56c','#87b85a','#a9c463'].map(hex3), FLOOD = hex3('#8fb3a6'), FALLOW = hex3('#b9ab78');
 var PONDC = ['#6fa2a6','#5f969b','#7aab9d','#86b0a8','#5a8f99'].map(hex3);
 function mixc(a, b, t, o){ o[0] = a[0] + (b[0] - a[0]) * t; o[1] = a[1] + (b[1] - a[1]) * t; o[2] = a[2] + (b[2] - a[2]) * t; }
 function setc(a, o){ o[0] = a[0]; o[1] = a[1]; o[2] = a[2]; }
 var FCA = Math.cos(0.28), FSA = Math.sin(0.28), PCA = Math.cos(0.45), PSA = Math.sin(0.45);
-function groundColor(x, z, hh, nn, zn, sl, o){
+function groundColor(x, z, hh, nn, zn, sl, o, lc){
   if (hh < 0){ if (hh > -0.7) mixc(PAL.wet, PAL.shoal, smooth(0, -0.7, hh), o); else mixc(PAL.shoal, PAL.deep, smooth(-0.7, -3.4, hh), o); return; }
   if (hh < 0.36 && zn < 10){ mixc(PAL.wet, PAL.sand, smooth(0.02, 0.22, hh), o); if (nn > 0.55) mixc(o, PAL.sand2, (nn - 0.55) * 1.2, o); return; }
   mixc(PAL.grass, PAL.grass2, nn, o);
@@ -230,6 +271,8 @@ function groundColor(x, z, hh, nn, zn, sl, o){
   if (hh > 0.6) mixc(o, PAL.scrub, smooth(0.42, 0.2, nn) * 0.7, o);
   if (sl > 1.3) mixc(o, PAL.rock, smooth(1.3, 2.8, sl) * 0.75, o);
   if (hh > 20) mixc(o, PAL.rock2, smooth(20, 27, hh) * 0.5, o);
+  // lớp phủ thật (ngoài khu phố): rừng, cây bụi, cỏ, đất trống, xóm nhà, rừng ngập mặn
+  if (lc && zn === 1){ var lt = LC_TINT[lc]; if (lt) mixc(o, lt[0], lt[1] * (0.75 + 0.25 * nn), o); }
   if (zn >= 10){ var D = DIST[zn - 10];
     var lx = x - D.ox, lz = z - D.oz, u = lx * D.ca + lz * D.sa, v = -lx * D.sa + lz * D.ca;
     var fu = u / D.su, fv = v / D.sv, iu = Math.floor(fu), iv = Math.floor(fv); fu = (fu - iu) * D.su; fv = (fv - iv) * D.sv;
@@ -265,7 +308,7 @@ function groundColor(x, z, hh, nn, zn, sl, o){
 }
 function paintGround(data, TW, TH, G, rx, rz, rw, rd, row0, row1){
   if (rx == null){ rx = BX0; rz = BZ0; rw = BW; rd = BD; } if (row0 == null){ row0 = 0; row1 = TH; }
-  var GX = G.GX, GZ = G.GZ, hA = G.h, nA = G.n, zA = G.zone, sA = G.slope, cx = G.cx, cz = G.cz, sx = rw / TW, sz = rd / TH, o = [0, 0, 0];
+  var GX = G.GX, GZ = G.GZ, hA = G.h, nA = G.n, zA = G.zone, sA = G.slope, lA = G.lc, cx = G.cx, cz = G.cz, sx = rw / TW, sz = rd / TH, o = [0, 0, 0];
   for (var py = row0; py < row1; py++){
     var z = rz + (py + 0.5) * sz, gzf = (z - BZ0) / cz, j0 = gzf | 0; if (j0 > GZ - 2) j0 = GZ - 2; if (j0 < 0) j0 = 0; var fz = gzf - j0;
     for (var px = 0; px < TW; px++){
@@ -276,7 +319,7 @@ function paintGround(data, TW, TH, G, rx, rz, rw, rd, row0, row1){
       var ii = (gxf + (r1 - 0.5) * 0.9 + 0.5) | 0, jj = (gzf + (r2 - 0.5) * 0.9 + 0.5) | 0;
       if (ii > GX - 1) ii = GX - 1; if (jj > GZ - 1) jj = GZ - 1; if (ii < 0) ii = 0; if (jj < 0) jj = 0;
       var kk = jj * GX + ii;
-      groundColor(x, z, hh, nn, zA[kk], sA[kk], o);
+      groundColor(x, z, hh, nn, zA[kk], sA[kk], o, lA ? lA[kk] : 0);
       var q = (py * TW + px) * 4, g = (r1 - 0.5) * 7;
       data[q] = o[0] + g; data[q + 1] = o[1] + g; data[q + 2] = o[2] + g; data[q + 3] = 255;
     }
@@ -366,6 +409,7 @@ function genBuildings(G, MK, dens, extraTowers){
 }
 
 /* ---------- vegetation ---------- */
+var LC_TREES = { 10:0.85, 20:0.4, 30:0.12, 40:0.05, 50:0.12, 60:0.02, 80:0, 90:0.08, 95:0.9 };
 function genTrees(G, MK, stepSize, dens){
   var round = [], cones = [], palms = [], rt = mulberry32(99);
   for (var z = BZ0 + 1; z < BZ1 - 1; z += stepSize) for (var x = BX0 + 1; x < BX1 - 1; x += stepSize){
@@ -374,7 +418,8 @@ function genTrees(G, MK, stepSize, dens){
     var zn = G.zoneAt(jx, jz), sl = G.slopeAt(jx, jz), n = G.nAt(jx, jz), p;
     if (zn >= 10){ var st = DIST[zn - 10].style; p = st === 'village' ? 0.45 : (st === 'resort' ? 0.4 : (st === 'suburb' ? 0.25 : 0.03)); }
     else if (zn === 2) p = 0.03; else if (zn === 3) p = 0.05;
-    else { p = h > 1.1 ? 0.6 + 0.4 * n : 0.2 + 0.35 * n; if (sl > 1.3) p *= 0.5; if (h < 0.7) p = 0.35; }
+    else { p = h > 1.1 ? 0.6 + 0.4 * n : 0.2 + 0.35 * n; if (sl > 1.3) p *= 0.5; if (h < 0.7) p = 0.35;
+      var lc = G.lcAt ? G.lcAt(jx, jz) : 0; if (lc && LC_TREES[lc] != null) p = LC_TREES[lc] * (0.7 + 0.6 * n); }   // mật độ cây theo lớp phủ thật
     if (rt() > p * dens) continue;
     if (MK(jx, jz)) continue;
     var big = h > 1.1 ? 1.35 : 1, s = (0.32 + rt() * 0.26) * big;

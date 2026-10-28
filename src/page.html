@@ -14,6 +14,7 @@
   <h1>Nha Tr<b>a</b>ng</h1>
   <p class="sub">Vịnh Nha Trang · Khánh Hòa</p>
   <p id="coord" class="coord">12°14′B · 109°11′Đ</p>
+  <p id="wx" class="coord wxc" hidden></p>
 </header>
 
 <div class="tools">
@@ -61,7 +62,8 @@
   </div>
 </section>
 
-<div id="scale" class="scalebar panel" aria-hidden="true"><span id="scaleBar" style="width:60px"></span><b id="scaleText">1 km</b></div>
+<div id="scale" class="scalebar panel"><span id="scaleBar" style="width:60px" aria-hidden="true"></span><b id="scaleText" aria-hidden="true">1 km</b>
+  <small class="attrib">Địa hình: Copernicus DEM · Lớp phủ: ESA WorldCover · Thời tiết: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> · Mô hình: <a href="https://kenney.nl" target="_blank" rel="noopener">Kenney</a></small></div>
 <p id="hint" class="hint panel">Kéo để di chuyển · Chuột phải hoặc hai ngón để xoay · Cuộn để phóng to · Bấm Lái xe để tự đi dạo</p>
 
 <nav class="rail" aria-label="Địa danh"><div id="rail" class="rail-inner"></div></nav>
@@ -71,7 +73,7 @@
   <p id="playMsg" class="play-msg panel" hidden></p>
   <p class="play-help panel"><b>WASD</b> / mũi tên: đi, lái · <b>Shift</b>: chạy, tăng ga · <b>E</b>: lên/xuống xe, gọi xe · <b>Space</b>: nhảy · <b>H</b>: bấm còi · Kéo chuột: xoay góc nhìn · <b>Esc</b>: thoát</p>
   <div id="joy" class="joy" aria-hidden="true"><div id="joyKnob" class="joy-knob"></div></div>
-  <div class="play-btns"><button id="btnHorn" class="pbtn" type="button">Còi</button><button id="btnBoost" class="pbtn" type="button">Tăng ga</button><button id="btnMount" class="pbtn pbtn-main" type="button">Lên xe</button></div>
+  <div class="play-btns"><button id="btnHorn" class="pbtn" type="button">Còi</button><button id="btnBoost" class="pbtn" type="button" aria-pressed="false">Tăng ga</button><button id="btnMount" class="pbtn pbtn-main" type="button">Lên xe</button></div>
 </div>
 
 <div id="loader" class="loader"><div class="loader-card panel"><div class="spin"></div><p id="loaderText">Đang dựng bản đồ…</p></div></div>

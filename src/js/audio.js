@@ -39,6 +39,8 @@ function startAudio(){
   // dế ban đêm: dao động cao, ngắt nhịp
   L.night = gainN(0); var cr = ctx.createOscillator(); cr.type = 'triangle'; cr.frequency.value = 4300; var crg = gainN(0); lfo(28, 0.5, crg.gain); var crg2 = gainN(0.5); lfo(0.7, 0.5, crg2.gain);
   cr.start(); chain([cr, crg, crg2, filt('bandpass', 4300, 6), L.night, AU.master]);
+  // mưa: nhiễu hồng lọc dải cao, rì rào; âm lượng theo lượng mưa thật (weather.js)
+  L.rain = gainN(0); chain([loopSrc(pink), filt('highpass', 900), filt('lowpass', 7000), L.rain, AU.master]);
   L.fx = gainN(1); L.fx.connect(AU.master);
   // xe máy: răng cưa + vuông, nổ "bành bạch" bằng điều biên theo vòng tua
   var e = AU.eng = { g:gainN(0), o1:ctx.createOscillator(), o2:ctx.createOscillator(), am:gainN(0.6), f:filt('lowpass', 700, 2) };
@@ -84,9 +86,10 @@ function updateAudio(dt, dist){
   if (play && PL.mode === 'swim') sea = 1;
   function set(g, v){ g.gain.setTargetAtTime(v, t, 0.4); }
   set(L.sea, (0.12 + 0.75 * sea * near + 0.18 * high) * 0.55);
-  set(L.wind, 0.05 + 0.3 * high + 0.25 * E.wild * near + (play && PL.mode === 'bike' ? clamp(Math.abs(PL.bike.speed) / 2.4, 0, 1) * 0.25 : 0));
+  set(L.wind, (0.05 + 0.3 * high + 0.25 * E.wild * near + (play && PL.mode === 'bike' ? clamp(Math.abs(PL.bike.speed) / 2.4, 0, 1) * 0.25 : 0)) * (0.8 + clamp(WX.wind / 25, 0, 1.2)));  // gió thật (km/h) làm gió to nhỏ
   set(L.city, E.city * near * (0.5 - 0.3 * night) * 0.6);
-  set(L.night, night * (0.03 + 0.08 * (1 - E.city) * near));
+  set(L.night, night * (0.03 + 0.08 * (1 - E.city) * near) * (1 - WX.k.rain));
+  set(L.rain, WX.k.rain * (0.15 + 0.35 * near));
   // còi xe ngẫu nhiên trong phố, nhiều hơn khi ở gần
   if (t > AU.nextHorn){ AU.nextHorn = t + 1.2 + Math.random() * (7 - 5 * E.city); if (E.city > 0.15 && near > 0.3 && Math.random() < 0.8) horn(t, 0.02 + 0.07 * E.city * near * Math.random(), 1 + (Math.random() < 0.6)); }
   // chim hót ban ngày ở đồi, vườn, ven biển
