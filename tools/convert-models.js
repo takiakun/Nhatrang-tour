@@ -25,7 +25,9 @@ const LIST = {
   'boat-fishing':'boat/boat-fishing-small', 'boat-ferry':'boat/boat-tow-b', 'boat-speed-a':'boat/boat-speed-a', 'boat-speed-c':'boat/boat-speed-c',
   'boat-speed-e':'boat/boat-speed-e', 'boat-sail-a':'boat/boat-sail-a', 'boat-sail-b':'boat/boat-sail-b', 'ship-liner':'boat/ship-ocean-liner', 'ship-cargo':'boat/ship-cargo-a',
   // Train Kit: đầu máy và toa khách
-  'train-loco':'train/train-diesel-a', 'train-coach':'train/train-locomotive-passenger-a'
+  'train-loco':'train/train-diesel-a', 'train-coach':'train/train-locomotive-passenger-a',
+  // Dựng bằng Blender từ script trong tools/blender/ (xem script đó để biết cách chạy)
+  'ponagar':'blender/ponagar', 'chodam':'blender/chodam', 'cathedral':'blender/cathedral', 'tramhuong':'blender/tramhuong', 'buddha':'blender/buddha', 'station':'blender/station'
 };
 
 const { readPNG } = require('./lib/png');
@@ -53,7 +55,9 @@ function readGLB(file, texDir){
         let nx = 0, ny = 1, nz = 0; if (nor){ const a = nor[k * 3], bb = nor[k * 3 + 1], c = nor[k * 3 + 2]; nx = W[0] * a + W[4] * bb + W[8] * c; ny = W[1] * a + W[5] * bb + W[9] * c; nz = W[2] * a + W[6] * bb + W[10] * c; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l; }
         N.push(nx, ny, nz);
         let r = 255, g = 255, bl = 255; if (tex && uv){ const u = uv[k * 2] - Math.floor(uv[k * 2]), v = uv[k * 2 + 1] - Math.floor(uv[k * 2 + 1]), px = Math.min(tex.w - 1, Math.floor(u * tex.w)), py = Math.min(tex.h - 1, Math.floor(v * tex.h)), q = (py * tex.w + px) * 4; r = tex.data[q]; g = tex.data[q + 1]; bl = tex.data[q + 2]; }
-        C.push(Math.round(r * bc[0]), Math.round(g * bc[1]), Math.round(bl * bc[2])); }
+        // baseColorFactor là màu tuyến tính: đổi về sRGB cho khớp với màu lấy từ texture (vd. mô hình dựng bằng tools/blender/)
+        const lin2s = v => v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
+        C.push(Math.round(r * lin2s(bc[0])), Math.round(g * lin2s(bc[1])), Math.round(bl * lin2s(bc[2]))); }
       if (pr.indices != null) acc(pr.indices).forEach(i => I.push(base + i)); else for (let k = 0; k < cnt; k++) I.push(base + k); });
     (n.children || []).forEach(c => visit(c, W)); }
   const ID = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -62,7 +66,7 @@ function readGLB(file, texDir){
 }
 
 /* ---------- gộp đỉnh trùng sau khi lượng tử hoá, rồi đóng gói ---------- */
-function pack(m){
+function pack(m, noMask){
   const n = m.P.length / 3, mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
   for (let k = 0; k < n; k++) for (let c = 0; c < 3; c++){ mn[c] = Math.min(mn[c], m.P[k * 3 + c]); mx[c] = Math.max(mx[c], m.P[k * 3 + c]); }
   const sc = mx.map((v, c) => (v - mn[c]) / 65535 || 1), map = new Map(), P = [], N = [], C = [], I = [], M = [];
@@ -73,7 +77,7 @@ function pack(m){
   for (let k = 0; k < n; k++){
     const q = [0, 1, 2].map(c => Math.round((m.P[k * 3 + c] - mn[c]) / sc[c]) - 32768), nn = [0, 1, 2].map(c => Math.round(m.N[k * 3 + c] * 127));
     let cc = [m.C[k * 3], m.C[k * 3 + 1], m.C[k * 3 + 2]], roof = 0;
-    if (cc[1] > cc[0] + 25 && cc[1] > cc[2] + 10 && m.P[k * 3 + 1] > hy){ const L = Math.min(255, Math.round((0.3 * cc[0] + 0.59 * cc[1] + 0.11 * cc[2]) / 175 * 255)); cc = [L, L, L]; roof = 255; roofN++; }
+    if (!noMask && cc[1] > cc[0] + 25 && cc[1] > cc[2] + 10 && m.P[k * 3 + 1] > hy){ const L = Math.min(255, Math.round((0.3 * cc[0] + 0.59 * cc[1] + 0.11 * cc[2]) / 175 * 255)); cc = [L, L, L]; roof = 255; roofN++; }
     const key = q.concat(nn, cc, roof).join(','); let id = map.get(key);
     if (id == null){ id = P.length / 3; map.set(key, id); P.push(...q); N.push(...nn); C.push(...cc); M.push(roof); }
     remap[k] = id; }
@@ -89,7 +93,7 @@ function run(entries, out){
     // Bộ Commercial có nhiều mảng tường xám đậm, lệch tông với phố nhà ống màu pastel => làm sáng các màu xám tối, ít bão hoà.
     if (/[\\/]com[\\/]/.test(file)) for (let k = 0; k < g.C.length; k += 3){ const c = g.C.slice(k, k + 3), mxc = Math.max(...c), mnc = Math.min(...c);
       if (mxc < 110 && mxc - mnc < 30) for (let j = 0; j < 3; j++) g.C[k + j] = Math.round(255 - (255 - c[j]) * 0.5); }
-    const r = pack(g); tris += r.tris; delete r.tris; res[id] = r; }
+    const r = pack(g, /[\\/]blender[\\/]/.test(file)); tris += r.tris; delete r.tris; res[id] = r; }   // mô hình Blender tự chọn màu, không đổi màu mái
   const js = '/* Tự sinh bởi tools/convert-models.js, đừng sửa tay. Mô hình: Kenney City Kit (CC0, www.kenney.nl). */\n' +
     'var MODEL_DATA = {\n' + Object.keys(res).map(k => '  ' + JSON.stringify(k) + ':' + JSON.stringify(res[k])).join(',\n') + '\n};\n';
   fs.writeFileSync(out, js);

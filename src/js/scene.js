@@ -93,6 +93,9 @@ function kitMesh(id, len, roof, flip){ var g = modelGeo(id).clone(), mk = g.attr
   for (var i = 0; i < mk.length; i++) if (mk[i] > 0){ a[i * 3] *= rc.r; a[i * 3 + 1] *= rc.g; a[i * 3 + 2] *= rc.b; }
   g.setAttribute('color', new THREE.BufferAttribute(a, 3)); var m = new THREE.Mesh(g, VCM); m.scale.copy(fitLen(id, len)); if (flip) m.rotation.y = Math.PI;
   m.castShadow = m.receiveShadow = true; var o = new THREE.Group(); o.add(m); return o; }
+// Mô hình giữ đúng toạ độ gốc lúc dựng (không chuẩn hoá về gốc), dùng cho địa danh dựng bằng Blender
+function kitNative(id, material){ var d = MODEL_DATA[id], m = new THREE.Mesh(modelGeo(id), material || VCM); m.scale.set(d.size[0], d.size[1], d.size[2]);
+  m.position.set(d.min[0] + d.size[0] / 2, d.min[1], d.min[2] + d.size[2] / 2); m.castShadow = m.receiveShadow = true; var g = new THREE.Group(); g.add(m); return g; }
 // InstancedMesh động dùng kitMat: màu từng chiếc = instanceColor (mặc định trắng), mái = aRoof
 function kitDyn(id, n, cast){ var g = modelGeo(id).clone(), N = Math.max(n, 1), im = dynInst(g, kit(), n, cast);
   g.setAttribute('aRoof', new THREE.InstancedBufferAttribute(new Float32Array(N * 3).fill(0.85), 3)); for (var i = 0; i < N; i++){ _c.setRGB(1, 1, 1); im.setColorAt(i, _c); } return im; }
@@ -122,56 +125,24 @@ function glowPoints(positions, colors, size, color){ var g = new THREE.BufferGeo
   var p = new THREE.Points(g, m); p.frustumCulled = false; p.renderOrder = 5; scene.add(p); return p; }
 
 /* ---------- landmark builders (model units, scaled when placed) ---------- */
-function buildPonagar(){
-  var g = new THREE.Group();
-  g.add(at(box(8, 3, 12.5, '#c49a73'), 0, -1.15, 0));
-  function tower(s){ var t = new THREE.Group(), y = 0.35;
-    for (var i = 0; i < 4; i++){ var w = s * (1 - 0.17 * i), hh = s * (i === 0 ? 1.3 : 0.55);
-      t.add(at(box(w, hh, w, i % 2 ? '#b0533a' : '#a24a33'), 0, y + hh / 2, 0)); t.add(at(box(w * 1.12, 0.16, w * 1.12, '#8e3f2b'), 0, y + hh, 0)); y += hh + 0.16; }
-    var cap = cone(s * 0.44, s * 0.95, 4, '#8e3f2b'); cap.rotation.y = Math.PI / 4; t.add(at(cap, 0, y + s * 0.47, 0));
-    t.add(at(box(0.1, s * 0.62, s * 0.36, '#3d1d14'), s / 2 + 0.04, 0.35 + s * 0.31, 0)); return t; }
-  g.add(at(tower(2.7), -0.6, 0, -3.4)); g.add(at(tower(1.9), -0.3, 0, 0.4)); g.add(at(tower(1.55), -0.2, 0, 3.4));
-  for (var r = 0; r < 2; r++) for (var c = 0; c < 5; c++) g.add(at(cyl(0.22, 0.26, 1.9, 6, '#b46a4a'), 2.4 + r * 1.3, 1.3, -3 + c * 1.5));
-  return g; }
+// Dựng bằng Blender (tools/blender/ponagar.py), cùng hệ đơn vị mô hình với bản khối hộp cũ nên place() giữ nguyên tỷ lệ 0.22
+function buildPonagar(){ return kitNative('ponagar'); }
 function buildHonChong(){ var g = new THREE.Group(), geo = new THREE.DodecahedronGeometry(1, 0);
   [[0,0.4,0,2.3,1.4,1.9,'#c2b6a2'],[0.9,2.1,0.2,1.5,1.05,1.3,'#b3a691'],[0.5,3.5,0,1.15,0.95,1,'#c8bca8'],[-2.2,0.2,1.6,1.7,1.1,1.5,'#ab9f8b'],[2.6,-0.1,-1.6,1.9,1.1,1.6,'#b8ac97'],[3.6,-0.4,1.4,1.3,0.9,1.2,'#a89a86'],[-1.2,0,-2.4,1.2,0.8,1.1,'#bdb19c'],[4.6,-0.6,-0.2,1.4,0.8,1.3,'#b0a38f']].forEach(function(r){
     var m = mesh(geo, mat(r[6], { flatShading:true })); m.scale.set(r[3], r[4], r[5]); m.position.set(r[0], r[1], r[2]); m.rotation.set(r[0], r[2], r[1]); g.add(m); });
   return g; }
-function buildChoDam(){ var g = new THREE.Group(), wall = '#f4ead6', roof = '#3fa47e';
-  g.add(at(cyl(4.2, 4.3, 1.8, 20, wall), 0, 0.9, 0)); g.add(at(cyl(4.6, 4.6, 0.25, 20, roof), 0, 1.9, 0)); g.add(at(cyl(3.0, 4.5, 0.9, 20, roof), 0, 2.45, 0));
-  g.add(at(cyl(2.6, 2.6, 1.0, 20, wall), 0, 3.4, 0)); g.add(at(cyl(1.6, 3.0, 0.8, 20, roof), 0, 4.3, 0));
-  g.add(at(mesh(new THREE.SphereGeometry(1.4, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), '#2f8c6a'), 0, 4.65, 0));
-  for (var i = 0; i < 8; i++){ var a = i / 8 * Math.PI * 2, dr = at(box(0.9, 1.1, 0.12, '#7a5a3a'), Math.cos(a) * 4.25, 0.55, Math.sin(a) * 4.25); dr.rotation.y = -a + Math.PI / 2; g.add(dr); }
-  return g; }
-function buildBuddha(){ var g = new THREE.Group(), white = '#f7f5ef';
-  g.add(at(box(5.4, 3, 5.4, '#e2dccd'), 0, -1.2, 0)); g.add(at(cyl(2.4, 2.8, 1.0, 16, '#ebe5d7'), 0, 0.8, 0));
-  var petal = new THREE.SphereGeometry(1, 8, 6);
-  for (var i = 0; i < 10; i++){ var a = i / 10 * Math.PI * 2, p = mesh(petal, '#f1e6dc'); p.scale.set(0.5, 0.85, 0.3); p.position.set(Math.cos(a) * 2.05, 1.65, Math.sin(a) * 2.05); p.rotation.y = -a + Math.PI / 2; p.rotation.x = -0.35; g.add(p); }
-  var legs = cyl(1.9, 2.1, 0.9, 16, white); legs.scale.z = 0.8; g.add(at(legs, 0, 2.1, 0));
-  var body = sph(1.25, white); body.scale.set(1, 1.35, 0.85); g.add(at(body, 0, 3.45, 0));
-  g.add(at(sph(0.62, white), 0, 5.2, 0)); g.add(at(sph(0.3, white), 0, 5.75, 0)); return g; }
+function buildChoDam(){ return kitNative('chodam'); }   // Blender: tools/blender/chodam.py
+function buildBuddha(){ return kitNative('buddha'); }   // Blender: tools/blender/buddha.py, mặt quay hướng đông
 function buildPagoda(){ var g = new THREE.Group();
   g.add(at(box(5.2, 1.6, 3.6, '#f2d27a'), 0, 0.8, 0));
   for (var i = 0; i < 4; i++) g.add(at(cyl(0.14, 0.14, 1.6, 6, '#b8402c'), 2.65, 0.8, -1.35 + i * 0.9));
   var r1 = cone(1, 1.5, 4, '#d6492f'); r1.rotation.y = Math.PI / 4; r1.scale.set(4.4, 1, 3.2); g.add(at(r1, 0, 2.35, 0));
   g.add(at(box(2.8, 0.7, 2, '#f2d27a'), 0, 3.3, 0));
   var r2 = cone(1, 1, 4, '#d6492f'); r2.rotation.y = Math.PI / 4; r2.scale.set(2.4, 1, 1.8); g.add(at(r2, 0, 4.1, 0)); return g; }
-function buildCathedral(){ var g = new THREE.Group(), stone = '#b3aea4', roof = '#5d6470';
-  g.add(at(box(10, 2.6, 4.6, '#9c978d'), -0.3, -1, 0)); g.add(at(box(8, 3, 3.4, stone), -1, 1.5, 0));
-  var pr = prism(3.8, 1.9, 8.2, roof); pr.rotation.y = Math.PI / 2; g.add(at(pr, -1, 3, 0));
-  g.add(at(box(2.3, 6.6, 2.3, stone), 3.9, 3.3, 0)); g.add(at(box(2.5, 0.25, 2.5, '#9c978d'), 3.9, 6.6, 0));
-  var sp = cone(1.3, 4.2, 4, roof); sp.rotation.y = Math.PI / 4; g.add(at(sp, 3.9, 8.8, 0));
-  g.add(at(box(0.14, 1.1, 0.14, '#3d4148'), 3.9, 11.4, 0)); g.add(at(box(0.14, 0.14, 0.6, '#3d4148'), 3.9, 11.6, 0));
-  [[-4.6, 1.4], [-4.6, -1.4]].forEach(function(p){ var s = cone(0.35, 1.6, 4, roof); s.rotation.y = Math.PI / 4; g.add(at(s, p[0], 3.9, p[1])); });
-  g.add(at(sph(0.42, '#7fa8c9', 8, 6), 5.08, 4.4, 0)); return g; }
-var towerGlow = glowMat('#f7f0e4', '#ffb37a', 0.05, 1.2);
-function buildTramHuong(){ var g = new THREE.Group();
-  g.add(at(cyl(3, 3.2, 0.6, 16, '#e9e4d8'), 0, 0.3, 0));
-  var petal = new THREE.SphereGeometry(1, 10, 6);
-  for (var i = 0; i < 8; i++){ var a = i / 8 * Math.PI * 2, p = mesh(petal, '#f4e1d6'); p.scale.set(0.75, 1.9, 0.32); p.position.set(Math.cos(a) * 1.75, 1.7, Math.sin(a) * 1.75); p.rotation.y = -a + Math.PI / 2; p.rotation.x = -0.42; g.add(p); }
-  g.add(at(mesh(new THREE.CylinderGeometry(0.9, 1.35, 6.5, 12), towerGlow), 0, 3.85, 0));
-  var pts = [[0,0],[1.2,0.4],[1.75,1.6],[1.6,3],[1.05,4.2],[0.3,5],[0,5.35]].map(function(q){ return new THREE.Vector2(q[0], q[1]); });
-  g.add(at(mesh(new THREE.LatheGeometry(pts, 12), towerGlow), 0, 7.05, 0)); g.add(at(cone(0.12, 1.2, 6, '#e3c89a'), 0, 12.9, 0)); return g; }
+function buildCathedral(){ return kitNative('cathedral'); }   // Blender: tools/blender/cathedral.py
+// Blender: tools/blender/tramhuong.py. Ban đêm cả tháp sáng lên (vật liệu phát sáng theo giờ, như bản cũ)
+var towerGlowVC = glowMat('#ffffff', '#ffb37a', 0.05, 1.2); towerGlowVC.vertexColors = true;
+function buildTramHuong(){ return kitNative('tramhuong', towerGlowVC); }
 function buildInstitute(){ var g = new THREE.Group();
   g.add(at(box(7, 2.6, 3.8, '#efbd4a'), 0, 1.3, 0));
   var r = cone(1, 1.6, 4, '#c9452f'); r.rotation.y = Math.PI / 4; r.scale.set(5.4, 1, 3.1); g.add(at(r, 0, 3.4, 0));
@@ -184,13 +155,7 @@ function buildColonial(w, d, floors, wall, roof){ var g = new THREE.Group(), h =
   var r = cone(1, 1.1, 4, roof); r.rotation.y = Math.PI / 4; r.scale.set(w * 0.78, 1, d * 0.78); g.add(at(r, 0, h + 0.62, 0));
   for (var i = 0; i < Math.floor(w / 0.9); i++) g.add(at(box(0.45, 0.8, 0.06, '#6f8ea3'), -w / 2 + 0.6 + i * 0.9, h * 0.55, d / 2 + 0.02));
   return g; }
-function buildStation(){ var g = new THREE.Group();
-  g.add(at(box(2.4, 1.1, 9, '#f1e3b5'), 0, 0.55, 0)); g.add(at(box(3, 1.9, 2.6, '#f4e7bf'), 0, 0.95, 0));
-  var r = prism(3.2, 1.0, 2.8, '#c4553c'); g.add(at(r, 0, 1.9, 0));
-  var r2 = prism(2.6, 0.6, 9.2, '#b8503a'); g.add(at(r2, 0, 1.1, 0));
-  g.add(at(box(1.2, 0.08, 11, '#d7d2c4'), -1.9, 0.9, 0));
-  for (var i = 0; i < 6; i++) g.add(at(box(0.08, 0.9, 0.08, '#6e6a62'), -2.3, 0.45, -5 + i * 2));
-  g.add(at(box(0.7, 0.1, 11, '#cfc8b8'), -2.1, 0.12, 0)); return g; }
+function buildStation(){ return kitNative('station'); }   // Blender: tools/blender/station.py
 function buildTemple(){ var g = new THREE.Group();
   g.add(at(box(2.2, 1.1, 1.8, '#f2d27a'), 0, 0.55, 0));
   var r1 = cone(1, 0.9, 4, '#c8452f'); r1.rotation.y = Math.PI / 4; r1.scale.set(2, 1, 1.7); g.add(at(r1, 0, 1.55, 0));
