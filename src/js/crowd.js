@@ -74,11 +74,16 @@ function genCrowd(n){
   var quota = { beach:0.3, idle:0.08, prom:0.15, swim:0.08, city:0.27, tour:0.12 }, made = 0, guard = 0;
   function beachPt(dmin, dmax){ var z = R(zN, zS), d = R(dmin, dmax); return [coastX(z) - d, z, d]; }
   var cityD = DIST.filter(function(D){ return D.style === 'city'; });
+  var citySegs = null; if (OSM){ citySegs = []; OSM.roads.forEach(function(Rd){ if (Rd.c < 3 || Rd.bridge) return; for (var i = 0; i < Rd.pts.length - 1; i++){ var a = Rd.pts[i], b = Rd.pts[i + 1], zn = G.zoneAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+    if (zn >= 10 && DIST[zn - 10].style === 'city' && Math.hypot(b[0] - a[0], b[1] - a[1]) > 0.3) citySegs.push([a[0], a[1], b[0], b[1], Rd.w]); } }); if (!citySegs.length) citySegs = null; }
   while (made < n && guard++ < n * 8){ var r = rc(), ok = false, p, len, z2;
     if (r < quota.beach){ p = beachPt(0.12, 0.95); len = R(0.4, 2.5) * (rc() < 0.5 ? 1 : -1); z2 = p[1] + len; ok = push(p[0], p[1], coastX(z2) - p[2], z2, pk(BEACH), R(0.05, 0.09)); }
     else if (r < quota.beach + quota.idle){ p = beachPt(0.2, 1.0); ok = push(p[0], p[1], p[0], p[1], pk(BEACH), 0); }
     else if (r < quota.beach + quota.idle + quota.prom){ p = beachPt(1.5, 1.8); len = R(1, 5) * (rc() < 0.5 ? 1 : -1); z2 = p[1] + len; ok = push(p[0], p[1], coastX(z2) - p[2], z2, pk(TOUR.concat(CITY)), R(0.06, 0.1)); }
     else if (r < quota.beach + quota.idle + quota.prom + quota.swim){ p = beachPt(-0.75, -0.12); len = R(0.1, 0.6) * (rc() < 0.5 ? 1 : -1); z2 = p[1] + len; ok = push(p[0], p[1], coastX(z2) - p[2], z2, 11, R(0.02, 0.04), -0.02); }
+    else if (r < quota.beach + quota.idle + quota.prom + quota.swim + quota.city && citySegs){   // OSM: đi trên vỉa hè đường thật trong phố
+      var sg = pk(citySegs), t0 = rc(), sd = (rc() < 0.5 ? 1 : -1) * (sg[4] / 2 + 0.035), dx = sg[2] - sg[0], dz = sg[3] - sg[1], sl = Math.hypot(dx, dz), ln = Math.min(sl * (1 - t0), R(0.3, 1.6));
+      var ax2 = sg[0] + dx * t0 - dz / sl * sd, az2 = sg[1] + dz * t0 + dx / sl * sd; ok = push(ax2, az2, ax2 + dx / sl * ln, az2 + dz / sl * ln, pk(CITY), R(0.05, 0.08)); }
     else if (r < quota.beach + quota.idle + quota.prom + quota.swim + quota.city){
       var D = pk(cityD), lo = toLocal(D, D.box[0], D.box[1]), hi = toLocal(D, D.box[2], D.box[3]), us = [lo[0], hi[0], toLocal(D, D.box[0], D.box[3])[0], toLocal(D, D.box[2], D.box[1])[0]], vs = [lo[1], hi[1], toLocal(D, D.box[0], D.box[3])[1], toLocal(D, D.box[2], D.box[1])[1]];
       var u0 = Math.min.apply(null, us), u1 = Math.max.apply(null, us), v0 = Math.min.apply(null, vs), v1 = Math.max.apply(null, vs), side = (rc() < 0.5 ? 1 : -1) * (D.sw / 2 - 0.025), L2 = R(0.4, 2);
