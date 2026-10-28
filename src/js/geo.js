@@ -61,7 +61,7 @@ var RIVERS = [
   { id:'be', pts: LLs([[12.2410,109.1500,2.4],[12.2330,109.1620,2.4],[12.2250,109.1720,2.6],[12.2170,109.1820,2.8],[12.2100,109.1900,3.0],[12.2030,109.1980,3.6],[12.1985,109.2040,5.0],[12.1955,109.2075,5.0],[12.1950,109.2115,6]]) }
 ];
 RIVERS.forEach(function(r){ r.box = bboxOf(r.pts, 10); });
-function riverS(x, z){ var best = 1e9;
+function riverS(x, z){ if (OSM && OSM.water) return osmWaterS(x, z); var best = 1e9;
   for (var k = 0; k < RIVERS.length; k++){ var R = RIVERS[k]; if (!inBox(x, z, R.box)) continue; var p = R.pts;
     for (var i = 0; i < p.length - 1; i++){ var a = p[i], b = p[i + 1], vx = b[0] - a[0], vz = b[1] - a[1], l = vx * vx + vz * vz, t = ((x - a[0]) * vx + (z - a[1]) * vz) / l; t = t < 0 ? 0 : (t > 1 ? 1 : t);
       var dx = x - a[0] - vx * t, dz = z - a[1] - vz * t, d = Math.sqrt(dx * dx + dz * dz) - (a[2] + (b[2] - a[2]) * t) * 0.5; if (d < best) best = d; } }
@@ -165,6 +165,9 @@ function realH(x, z){
   if (d >= 0){ h = 0.05 + 0.37 * smooth(0, 1.6, d) + 0.12 * (fbm(x * 0.05 + 11, z * 0.05 - 3) - 0.3) * smooth(2, 8, d);
     var hl = 0; for (var i = 0; i < HILLS.length; i++){ var q = HILLS[i], dx = x - q[0], dz = z - q[1], t = (dx * dx + dz * dz) / (q[2] * q[2]); if (t < 1){ var k = 1 - t; hl += q[3] * k * k; } }
     h += Math.max(hl, VE * Math.max(0, e - 15) * smooth(15, 45, e)) * smooth(0.6, 4.5, d); }   // đồi nhỏ có địa danh (Tháp Bà, Nhà thờ Núi…) giữ dáng ước lượng
+  else if (OSM && OSM.land){ var ls = osmLandS(x, z);   // đảo theo đường bờ OSM; độ cao trong đảo theo DEM
+    if (ls < 0) h = 0.05 + 0.33 * smooth(0, 1.2, -ls) + VE * Math.max(0, e - 4) * (0.9 + 0.2 * fbm(x * 0.2, z * 0.2)) * smooth(0, 1.5, -ls);
+    else { var sd2 = Math.min(-d, ls); h = -0.24 - Math.min(sd2, 40) * 0.15 * (0.7 + 0.6 * fbm(x * 0.02 + 3, z * 0.02)) - fbm(x * 0.03 + 7, z * 0.03) * 0.5 * smooth(0, 3, sd2); } }
   else if (d < -3 && e > 0.5) h = 0.05 + 0.33 * smooth(0.5, 6, e) + VE * Math.max(0, e - 4) * (0.9 + 0.2 * fbm(x * 0.2, z * 0.2));
   else { var sd = Math.min(-d, trSample(TR.dist, x, z)); h = -0.24 - Math.min(sd, 40) * 0.15 * (0.7 + 0.6 * fbm(x * 0.02 + 3, z * 0.02)) - fbm(x * 0.03 + 7, z * 0.03) * 0.5 * smooth(0, 3, sd); }
   if (!HON_DO) HON_DO = ISLANDS.filter(function(I){ return I.id === 'hon-do'; })[0];
@@ -178,7 +181,10 @@ function H(x, z){
 // sông và bãi đáp (dùng chung cho cả địa hình thật lẫn ước lượng)
 function carveH(x, z, h){
   var rs = riverS(x, z);
-  if (rs < 2.4 && h > -0.7){ var carve = lerp(-0.62, h, smooth(-0.3, 2.2, rs)); if (carve < h) h = carve; }
+  if (OSM && OSM.water){   // mặt nước OSM: dưới nước sâu dần từ đúng mép thật, đất sát bờ hạ về ngang bờ nhưng vẫn là đất (đê, đường ven sông)
+    if (rs < 0){ var cv = -0.05 - 0.57 * smooth(0, 0.5, -rs); if (cv < h) h = cv; }
+    else if (rs < 0.4 && h > 0.06) h = lerp(0.06, h, smooth(0, 0.4, rs)); }
+  else if (rs < 2.4 && h > -0.7){ var carve = lerp(-0.62, h, smooth(-0.3, 2.2, rs)); if (carve < h) h = carve; }
   for (var j = 0; j < PADS.length; j++){ var p = PADS[j], dd = Math.hypot(x - p[0], z - p[1]); if (dd < p[2] + 3) h = lerp(h, p[3], smooth(p[2] + 3, p[2], dd)); }
   return h;
 }
@@ -209,7 +215,7 @@ var PONDS = [
   LLs([[12.2075,109.1955],[12.2068,109.2045],[12.2030,109.2075],[12.1995,109.2030],[12.2000,109.1950]]),
   LLs([[12.1975,109.1960],[12.1968,109.2030],[12.1940,109.2032],[12.1945,109.1960]])
 ];
-function inPonds(x, z){ for (var i = 0; i < PONDS.length; i++) if (inPoly(x, z, PONDS[i])) return true; return false; }
+function inPonds(x, z){ if (OSM && OSM.water) return false; for (var i = 0; i < PONDS.length; i++) if (inPoly(x, z, PONDS[i])) return true; return false; }
 
 /* ---------- roads & railway ---------- */
 var zRiverMouth = P(12.2630, 0)[1], zHonChong = P(12.2735, 0)[1];
@@ -425,7 +431,28 @@ var OSM = (function(){ if (typeof OSM_DATA === 'undefined') return null; var D =
     return out; }
   var roads = polys(D.roads, 4, function(m, pts){ return { c:m[0], l:m[1], name:m[2] >= 0 ? D.names[m[2]] : '', bridge:!!m[3], w:Math.max(ROAD_W[m[0]], m[1] * 0.09), pts:pts }; });
   var builds = polys(D.builds, 2, function(m, pts){ return { lv:m[0], k:m[1], pts:pts }; });
-  return { roads:roads, builds:builds, classes:D.classes }; })();
+  var rails = (D.rails || []).map(function(r){ var c = i16(r), o = []; for (var i = 0; i + 1 < c.length; i += 2) o.push([c[i] / D.q, c[i + 1] / D.q]); return o; }), i;
+  // mặt nạ RLE (mặt nước, đất đảo) -> trường khoảng cách có dấu (đơn vị bản đồ; âm = trong mặt nạ), chamfer hai lượt
+  function field(W){ if (!W) return null; var b = atob(W.rle), u = new Uint8Array(b.length), i; for (i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
+    var runs = new Uint16Array(u.buffer), N = W.w * W.h, m = new Uint8Array(N), p = 0, v = 0; for (i = 0; i < runs.length; i++){ if (v) m.fill(1, p, p + runs[i]); p += runs[i]; v ^= 1; }
+    var dIn = new Float32Array(N), dOut = new Float32Array(N), nx = W.w, nz = W.h, D1 = W.step, D2 = W.step * 1.4142;
+    for (i = 0; i < N; i++){ dOut[i] = m[i] ? 0 : 1e9; dIn[i] = m[i] ? 1e9 : 0; }
+    [dOut, dIn].forEach(function(d){ var j, k, q, x;
+      for (j = 0; j < nz; j++) for (x = 0; x < nx; x++){ k = j * nx + x; q = d[k]; if (q === 0) continue;
+        if (x > 0) q = Math.min(q, d[k - 1] + D1); if (j > 0){ q = Math.min(q, d[k - nx] + D1); if (x > 0) q = Math.min(q, d[k - nx - 1] + D2); if (x < nx - 1) q = Math.min(q, d[k - nx + 1] + D2); } d[k] = q; }
+      for (j = nz - 1; j >= 0; j--) for (x = nx - 1; x >= 0; x--){ k = j * nx + x; q = d[k]; if (q === 0) continue;
+        if (x < nx - 1) q = Math.min(q, d[k + 1] + D1); if (j < nz - 1){ q = Math.min(q, d[k + nx] + D1); if (x < nx - 1) q = Math.min(q, d[k + nx + 1] + D2); if (x > 0) q = Math.min(q, d[k + nx - 1] + D2); } d[k] = q; } });
+    var f = new Float32Array(N); for (i = 0; i < N; i++) f[i] = m[i] ? -(dIn[i] - W.step / 2) : dOut[i] - W.step / 2;
+    return { f:f, w:nx, h:nz, step:W.step }; }
+  var wd = field(D.water), ld = field(D.land);
+  return { roads:roads, builds:builds, classes:D.classes, rails:rails, water:wd, land:ld }; })();
+if (OSM && OSM.rails.length) RAIL = OSM.rails[0];   // đường sắt thật: chuỗi dài nhất cho tàu chạy, các chuỗi khác (bãi ga, đường vòng) chỉ vẽ ray
+// khoảng cách có dấu tới mặt nước OSM (nội suy song tuyến); ngoài lưới coi như xa nước
+function osmLandS(x, z){ return fieldS(OSM.land, x, z); }   // khoảng cách có dấu tới đất đảo OSM (âm = trên đảo)
+function osmWaterS(x, z){ return fieldS(OSM.water, x, z); }
+function fieldS(W, x, z){ var gx = (x - BX0) / W.step - 0.5, gz = (z - BZ0) / W.step - 0.5;
+  if (gx < 0 || gz < 0 || gx >= W.w - 1 || gz >= W.h - 1) return 1e3; var i = gx | 0, j = gz | 0, a = gx - i, c = gz - j, k = j * W.w + i, f = W.f;
+  return (f[k] * (1 - a) + f[k + 1] * a) * (1 - c) + (f[k + W.w] * (1 - a) + f[k + W.w + 1] * a) * c; }
 
 // hình chữ nhật bao nhỏ nhất (thử hướng của từng cạnh): tâm, rộng (theo hướng ang), sâu
 function obbOf(pts){ var best = null;
@@ -528,8 +555,9 @@ function genTrees(G, MK, stepSize, dens){
 // điểm phụ của địa danh (toạ độ OSM; null = không có trong OSM, ước lượng theo ảnh/độ cao): ga cáp treo hai đầu, vòng quay, chùa và tượng Phật Long Sơn
 var LM_EXTRA = { cableA:[12.2034, 109.2176, 'way/71375373#first'], cableB:[12.2150, 109.2391, 'way/71375373#last'], wheel:[12.2219, 109.2429, 'node/7040432885'],
   pagoda:[12.2513, 109.1805, 'way/196896036'], buddha:[12.2522, 109.1808, null] };
+// osm:null = OSM không có điểm này: Núi Cô Tiên lấy đỉnh đầu tiên trên đường mòn theo DEM, Cửa Bé lấy chỗ sông Tắc – Quán Trường đổ ra biển theo mặt nước OSM
 var LM_DEF = [
-  { id:'co-tien', name:'Núi Cô Tiên', cat:'Núi', ll:[12.2865,109.2010], zoom:46, ring:0, top:1.5,
+  { id:'co-tien', name:'Núi Cô Tiên', cat:'Núi', ll:[12.2935,109.1980], osm:null, zoom:46, ring:0, top:1.5,
     desc:'Dãy núi phía bắc thành phố. Ba ngọn núi nối nhau, nhìn từ trung tâm giống dáng một nàng tiên nằm ngửa. Đường mòn lên đỉnh là điểm ngắm toàn cảnh vịnh Nha Trang.', facts:['Ba đỉnh núi','Ngắm toàn cảnh vịnh'] },
   { id:'hon-chong', name:'Hòn Chồng', cat:'Thắng cảnh', ll:[12.2728,109.2066], osm:'way/792392852', zoom:9, ring:1.6,
     desc:'Bãi đá granite chồng lên nhau ở mũi biển phía bắc, dưới chân núi Cô Tiên. Một tảng đá có vết lõm như bàn tay khổng lồ, gắn với truyền thuyết về chàng khổng lồ và nàng tiên.', facts:['Đá granite','Ngắm bình minh'] },
@@ -539,6 +567,8 @@ var LM_DEF = [
     desc:'Quần thể tháp Chăm cổ trên đồi Cù Lao, bên bờ bắc sông Cái. Tháp thờ Nữ thần Thiên Y A Na, người Chăm gọi là Po Inư Nagar, Mẹ xứ sở.', facts:['Thế kỷ 7–12','Đồi Cù Lao'] },
   { id:'xom-bong', name:'Cầu Xóm Bóng', cat:'Sông Cái', ll:[12.2636,109.1957], osm:'way/1423622837', zoom:12, ring:0,
     desc:'Cây cầu nối trung tâm với phía bắc thành phố, ngay dưới chân Tháp Bà. Gần cửa sông, những chiếc thuyền đánh cá sơn xanh neo đậu san sát.', facts:['Bắc qua sông Cái','Cạnh Tháp Bà'] },
+  { id:'cau-tran-phu', name:'Cầu Trần Phú', cat:'Sông Cái', ll:[12.2620,109.1993], osm:'way/1423622839', zoom:12, ring:0, top:1.0,
+    desc:'Cây cầu bắc qua cửa sông Cái, nối đường Trần Phú ven biển với đường Phạm Văn Đồng đi Hòn Chồng. Từ cầu nhìn thấy thuyền đánh cá neo ở cửa sông và Tháp Bà phía trong.', facts:['Cửa sông Cái','Trần Phú – Phạm Văn Đồng'] },
   { id:'cho-dam', name:'Chợ Đầm', cat:'Chợ', ll:[12.2553,109.1917], osm:'relation/21159862', zoom:8, ring:1.9,
     desc:'Chợ lớn nhất trung tâm Nha Trang, mái tròn nhiều tầng. Nơi mua hải sản khô, yến sào, nem chả và đặc sản Khánh Hòa.', facts:['Hải sản khô','Yến sào'] },
   { id:'yersin', name:'Viện Pasteur Nha Trang', cat:'Lịch sử', ll:[12.2517,109.1962], osm:'way/1193057647', zoom:7, ring:1.2,
@@ -549,6 +579,8 @@ var LM_DEF = [
     desc:'Nhà ga trên tuyến đường sắt Bắc – Nam, ở rìa tây trung tâm. Đường ray chạy theo hướng bắc – nam, sát chân đồi Long Sơn.', facts:['Đường sắt Bắc – Nam','Gần chùa Long Sơn'] },
   { id:'nha-tho', name:'Nhà thờ Núi', cat:'Tôn giáo', ll:[12.2467,109.1881], osm:'way/162818208', zoom:8, ring:1.8,
     desc:'Nhà thờ Chánh tòa Kitô Vua, xây bằng đá theo kiến trúc Gothic Pháp, trên một ngọn đồi nhỏ giữa trung tâm. Tháp chuông nhìn từ xa như một ngọn núi đá.', facts:['Xây 1928–1933','Kiến trúc Gothic'] },
+  { id:'xom-moi', name:'Chợ Xóm Mới', cat:'Chợ', ll:[12.2428,109.1904], osm:'way/266497124', zoom:8, ring:1.0,
+    desc:'Chợ truyền thống trong lòng phố, người dân địa phương đi chợ hằng ngày: hải sản tươi và khô, rau trái, đồ ăn vặt.', facts:['Chợ truyền thống','Hải sản khô'] },
   { id:'tram-huong', name:'Tháp Trầm Hương', cat:'Biểu tượng', ll:[12.2406,109.1969], osm:'way/232454020', zoom:9, ring:1.4,
     desc:'Tháp hình búp sen ở Quảng trường 2/4, nhìn ra bãi biển Trần Phú. Tên tháp gợi đến trầm hương, đặc sản quý của Khánh Hòa. Tối đến tháp lên đèn.', facts:['Quảng trường 2/4','Hình búp sen'] },
   { id:'tran-phu', name:'Bãi biển Trần Phú', cat:'Bãi biển', ll:[12.2363,109.1979], osm:'way/207742943', zoom:22, ring:0,
@@ -557,18 +589,24 @@ var LM_DEF = [
     desc:'Tuyến cáp treo vượt biển dài khoảng 3,3 km nối đất liền với đảo Hòn Tre. Cabin chạy trên những trụ cao giữa vịnh, nhìn xuống toàn cảnh thành phố.', facts:['Dài ~3,3 km','Vượt biển'] },
   { id:'hon-tre', name:'Đảo Hòn Tre', cat:'Đảo', ll:[12.2270,109.2830], zoom:75, ring:0, focus:[12.2215,109.2720], top:1.6,
     desc:'Đảo lớn nhất vịnh Nha Trang. Mũi phía tây có khu nghỉ dưỡng, công viên giải trí và vòng quay lớn nhìn về thành phố; phía nam là làng chài Bích Đầm.', facts:['Đảo lớn nhất vịnh','Cáp treo hoặc tàu'] },
+  { id:'vinwonders', name:'VinWonders Nha Trang', cat:'Vui chơi', ll:[12.2219,109.2429], osm:'node/7040432885', zoom:14, ring:0, top:2.2,
+    desc:'Khu vui chơi trên đảo Hòn Tre, dễ nhận ra nhờ vòng quay Bánh xe Bầu trời nhìn ra vịnh. Đi bằng cáp treo vượt biển hoặc tàu từ bến Cầu Đá.', facts:['Đảo Hòn Tre','Vòng quay bên vịnh'] },
   { id:'vien-hdh', name:'Viện Hải dương học', cat:'Khoa học', ll:[12.2076,109.2147], osm:'way/1158459582', zoom:8, ring:1.5,
     desc:'Viện nghiên cứu biển lâu đời ở Cầu Đá. Bảo tàng của viện trưng bày hàng chục nghìn mẫu sinh vật biển, trong đó có bộ xương cá voi lớn.', facts:['Thành lập 1922','Hơn 20.000 mẫu vật'] },
   { id:'cang', name:'Cảng Nha Trang', cat:'Cảng biển', ll:[12.2070,109.2168], osm:'node/1403104892', zoom:12, ring:0,
     desc:'Cảng ở mũi Cầu Đá, nơi tàu du lịch quốc tế cập bến và tàu khách đi các đảo trong vịnh xuất phát.', facts:['Mũi Cầu Đá','Tàu đi các đảo'] },
   { id:'bao-dai', name:'Biệt điện Bảo Đại', cat:'Lịch sử', ll:[12.2103,109.2154], osm:'way/272268190', zoom:8, ring:1.8,
     desc:'Quần thể biệt thự kiểu Pháp trên ngọn đồi nhỏ ở Cầu Đá, xây trong thập niên 1920, từng là nơi nghỉ của vua Bảo Đại. Từ đồi nhìn thẳng ra vịnh và đảo Hòn Tre.', facts:['Thập niên 1920','Đồi Cầu Đá'] },
-  { id:'cua-be', name:'Cửa Bé', cat:'Cửa sông', ll:[12.1958,109.2078], zoom:18, ring:0,
+  { id:'hai-dang', name:'Hải đăng Mũi Chụt', cat:'Hải đăng', ll:[12.2106,109.2167], osm:'way/1241245408', zoom:6, ring:0.8,
+    desc:'Ngọn hải đăng trên mũi Chụt, ngay cạnh Lầu Bảo Đại, soi đường cho tàu thuyền ra vào vịnh và cảng Cầu Đá.', facts:['Mũi Chụt','Cạnh Lầu Bảo Đại'] },
+  { id:'cua-be', name:'Cửa Bé', cat:'Cửa sông', ll:[12.1942,109.2060], osm:null, zoom:18, ring:0,
     desc:'Cửa sông phía nam thành phố, nơi sông Quán Trường đổ ra biển. Bờ nam là làng chài Hòn Rớ với rất nhiều thuyền đánh cá; quanh cửa sông là các đầm nuôi tôm.', facts:['Làng chài Hòn Rớ','Đầm nuôi tôm'] },
   { id:'hon-mieu', name:'Hòn Miễu', cat:'Đảo', ll:[12.1901,109.2245], osm:'way/816512133', zoom:20, ring:0, top:1.2,
     desc:'Đảo nhỏ gần cảng Cầu Đá, có làng chài Trí Nguyên. Quanh đảo là những làng bè nuôi cá, tôm hùm trên mặt nước.', facts:['Làng chài Trí Nguyên','Làng bè'] },
   { id:'hon-tam', name:'Hòn Tằm', cat:'Đảo', ll:[12.1747,109.2447], osm:'way/147536067', zoom:20, ring:0, top:1.2,
     desc:'Đảo nhỏ phía nam vịnh với bãi cát và khu nghỉ dưỡng, thích hợp tắm biển và chơi thể thao nước.', facts:['Bãi tắm','Thể thao nước'] },
+  { id:'hon-mot', name:'Hòn Một', cat:'Đảo', ll:[12.1775,109.2742], osm:'way/24029932', zoom:18, ring:0, top:1.0,
+    desc:'Hòn đảo nhỏ phía nam Hòn Tre, có bến tàu đón khách trong các chuyến đi thăm đảo quanh vịnh.', facts:['Phía nam Hòn Tre','Có bến tàu'] },
   { id:'hon-mun', name:'Hòn Mun', cat:'Biển đảo', ll:[12.1667,109.3049], osm:'relation/6726645', zoom:18, ring:0, top:1.2,
     desc:'Khu bảo tồn biển với rạn san hô và đàn cá nhiều màu, điểm lặn ngắm san hô nổi tiếng nhất vịnh Nha Trang.', facts:['Khu bảo tồn biển','Lặn ngắm san hô'] }
 ];

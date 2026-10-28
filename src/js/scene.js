@@ -156,6 +156,13 @@ function buildColonial(w, d, floors, wall, roof){ var g = new THREE.Group(), h =
   for (var i = 0; i < Math.floor(w / 0.9); i++) g.add(at(box(0.45, 0.8, 0.06, '#6f8ea3'), -w / 2 + 0.6 + i * 0.9, h * 0.55, d / 2 + 0.02));
   return g; }
 function buildStation(){ return kitNative('station'); }   // Blender: tools/blender/station.py
+// hải đăng Mũi Chụt, kích thước thật (tháp ~12 m, chiều cao theo VB): tháp trắng có dải đỏ, buồng đèn sáng vàng
+function buildLighthouse(){ var g = new THREE.Group(), H = 12 * VB;
+  g.add(at(box(0.4, 0.06, 0.28, '#d8d2c6'), 0, 0.03, 0)); g.add(at(box(0.16, 0.1, 0.12, '#f3ead8'), -0.1, 0.11, 0.04));   // nền 20 × 14 m (chân đế OSM) + nhà trực đèn
+  g.add(at(cyl(0.032, 0.046, H, 10, '#f7f5ef'), 0.08, 0.06 + H / 2, 0));
+  g.add(at(cyl(0.036, 0.04, H * 0.14, 10, '#c8452f'), 0.08, 0.06 + H * 0.62, 0));
+  var lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.05, 10), new THREE.MeshBasicMaterial({ color:0xffd56a })); g.add(at(lamp, 0.08, 0.06 + H + 0.025, 0));
+  var cap = cone(0.045, 0.05, 10, '#c8452f'); g.add(at(cap, 0.08, 0.06 + H + 0.075, 0)); return g; }
 function buildTemple(){ var g = new THREE.Group();
   g.add(at(box(2.2, 1.1, 1.8, '#f2d27a'), 0, 0.55, 0));
   var r1 = cone(1, 0.9, 4, '#c8452f'); r1.rotation.y = Math.PI / 4; r1.scale.set(2, 1, 1.7); g.add(at(r1, 0, 1.55, 0));
@@ -239,7 +246,7 @@ function roadPoint(R, s, o){ var f = s / 0.5, i = f | 0, n = R.pts.length; if (i
 var JETTIES = [], LMP = {}, RESORT_HOTELS = [[12.2200,109.2428,1.2,0.6,8,0.5],[12.2172,109.2445,1.0,0.55,6,-0.4],[12.2228,109.2452,0.9,0.5,10,0.2]];
 (function(){ LM_DEF.forEach(function(d){ var p = d.ll ? P(d.ll[0], d.ll[1]) : [0, 0]; LMP[d.id] = p; });
   for (var k in LM_EXTRA) LMP[k] = P(LM_EXTRA[k][0], LM_EXTRA[k][1]);
-  KEEP = [['ponagar', 2.8], ['cho-dam', 2.0], ['nha-tho', 2.0], ['ga', 2.6], ['yersin', 1.2], ['tram-huong', 2.2], ['vien-hdh', 1.8], ['bao-dai', 2.4], ['cang', 1.6], ['hon-chong', 1.6]].map(function(k){ var p = LMP[k[0]]; return [p[0], p[1], k[1]]; });
+  KEEP = [['ponagar', 2.8], ['cho-dam', 1.6], ['nha-tho', 1.0], ['ga', 1.6], ['yersin', 1.2], ['tram-huong', 2.2], ['vien-hdh', 1.8], ['bao-dai', 1.6], ['cang', 1.6], ['hon-chong', 1.4]].map(function(k){ var p = LMP[k[0]]; return [p[0], p[1], k[1]]; });
   RESORT_HOTELS.forEach(function(h){ var p = P(h[0], h[1]); KEEP.push([p[0], p[1], 1.0]); });
   KEEP.push([LMP.cableA[0], LMP.cableA[1], 1.3], [LMP.cableB[0], LMP.cableB[1], 1.3], [LMP.wheel[0], LMP.wheel[1], 2.4], [LMP.pagoda[0], LMP.pagoda[1], 1.6], [LMP.buddha[0], LMP.buddha[1], 1.8]);
 })();
@@ -252,6 +259,7 @@ function drawOverlays(ctx, isMask){
   if (isMask){ ctx.fillStyle = '#fff'; ctx.strokeStyle = '#fff';
     ROADS_S.concat([RAIL_S]).forEach(function(R){ ctx.lineWidth = R.rail ? 0.8 : R.w + 0.34; landRuns(R.pts).forEach(function(run){ strokeLine(ctx, run); }); });
     OSM_MINOR.forEach(function(R){ ctx.lineWidth = R.w + 0.1; strokeLine(ctx, R.pts); });
+    if (OSM) OSM.rails.slice(1).forEach(function(r){ ctx.lineWidth = 0.4; strokeLine(ctx, r); });
     fillPoly(ctx, plaza); KEEP.forEach(function(k){ ctx.beginPath(); ctx.arc(k[0], k[1], k[2], 0, Math.PI * 2); ctx.fill(); }); return; }
   ctx.strokeStyle = '#9fc46d'; ctx.lineWidth = 1.2; strokeLine(ctx, prom);
   ctx.strokeStyle = '#e9e1cc'; ctx.lineWidth = 0.3; strokeLine(ctx, prom);
@@ -266,6 +274,7 @@ function drawOverlays(ctx, isMask){
     ctx.strokeStyle = '#86898c'; ctx.lineWidth = R.w; strokeLine(ctx, run); ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = R.w - 0.07; strokeLine(ctx, run); ctx.strokeStyle = '#86898c'; ctx.lineWidth = R.w - 0.11; strokeLine(ctx, run);
     if (R.w > 0.5){ ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 0.045; strokeLine(ctx, run); ctx.strokeStyle = '#86898c'; ctx.lineWidth = 0.015; strokeLine(ctx, run); }
     else { ctx.setLineDash([0.26, 0.3]); ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 0.035; strokeLine(ctx, run); ctx.setLineDash([]); } }); });
+  if (OSM) OSM.rails.slice(1).forEach(function(r){ ctx.strokeStyle = '#a89c88'; ctx.lineWidth = 0.26; strokeLine(ctx, r); ctx.setLineDash([0.05, 0.07]); ctx.strokeStyle = '#6c5a48'; ctx.lineWidth = 0.18; strokeLine(ctx, r); ctx.setLineDash([]); });   // ray phụ: bãi ga, đường vòng
   landRuns(RAIL_S.pts).forEach(function(run){ ctx.strokeStyle = '#a89c88'; ctx.lineWidth = 0.46; strokeLine(ctx, run); ctx.setLineDash([0.05, 0.07]); ctx.strokeStyle = '#6c5a48'; ctx.lineWidth = 0.3; strokeLine(ctx, run); ctx.setLineDash([]); ctx.strokeStyle = '#4f4b47'; ctx.lineWidth = 0.06; strokeLine(ctx, run); });
   ctx.fillStyle = '#4fc3dd'; [[12.2196,109.2399,0.9,0.45],[12.2176,109.2424,0.6,0.38],[12.2206,109.2448,0.7,0.34],[12.1792,109.2318,0.5,0.3]].forEach(function(p){ var c = P(p[0], p[1]); ctx.fillRect(c[0] - p[2] / 2, c[1] - p[3] / 2, p[2], p[3]); });
 }
@@ -382,23 +391,28 @@ function buildSkirt(){
 
 function place(g, id, x, z, y, rot, s){ g.position.set(x, y == null ? gy(x, z) : y, z); if (rot) g.rotation.y = rot; if (s) g.scale.setScalar(s);
   if (id) g.userData.lmId = id; g.traverse(function(o){ if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; } }); scene.add(g); if (id) pickGroups.push(g); return g; }
+// địa danh theo kích thước thật: bề ngang khớp chân đế OSM, chiều cao nhân 1,6 như nhà phố (VB so với 1/50)
+function realY(g){ g.scale.y *= VB * 50; return g; }
 function topOf(g){ g.updateMatrixWorld(true); return new THREE.Box3().setFromObject(g).max.y; }
 
 function buildLandmarks(){
   var p, g;
   p = LMP.ponagar; g = place(buildPonagar(), 'ponagar', p[0], p[1], null, 0, 0.22); LMP.ponagarTop = topOf(g);
-  p = LMP['hon-chong']; g = place(buildHonChong(), 'hon-chong', p[0], p[1], Math.max(G.hAt(p[0], p[1]) - 0.2, -0.2), 0.4, 0.32); LMP.honchongTop = topOf(g);
-  p = LMP['cho-dam']; g = place(buildChoDam(), 'cho-dam', p[0], p[1], null, 0, 0.3); LMP.chodamTop = topOf(g);
-  p = LMP.buddha; g = place(buildBuddha(), 'long-son', p[0], p[1], null, 0, 0.3); LMP.buddhaTop = topOf(g);
-  p = LMP.pagoda; place(buildPagoda(), 'long-son', p[0], p[1], null, 0.1, 0.24);
-  p = LMP['nha-tho']; g = place(buildCathedral(), 'nha-tho', p[0], p[1], null, 0, 0.26); LMP.nhathoTop = topOf(g);
-  p = LMP['tram-huong']; g = place(buildTramHuong(), 'tram-huong', p[0], p[1], null, 0, 0.22); LMP.tramTop = topOf(g);
+  p = LMP['hon-chong']; g = place(buildHonChong(), 'hon-chong', p[0], p[1], Math.max(G.hAt(p[0], p[1]) - 0.2, -0.2), 0.4, 0.24);   // bãi đá OSM ~115 × 60 m LMP.honchongTop = topOf(g);
+  p = LMP['cho-dam']; g = realY(place(buildChoDam(), 'cho-dam', p[0], p[1], null, 0, 0.235));   // OSM ~125 × 116 m LMP.chodamTop = topOf(g);
+  p = LMP.buddha; g = realY(place(buildBuddha(), 'long-son', p[0], p[1], null, 0, 0.09));   // tượng 24 m trên bệ hoa sen, bệ ~35 m LMP.buddhaTop = topOf(g);
+  p = LMP.pagoda; realY(place(buildPagoda(), 'long-son', p[0], p[1], null, 1.17, 0.075));   // chính điện OSM 40 × 30 m, trục 67°
+  p = LMP['nha-tho']; g = realY(place(buildCathedral(), 'nha-tho', p[0], p[1], null, 1.78, 0.073)); LMP.nhathoTop = topOf(g);   // chân đế OSM 41 × 20 m, trục 102° từ hướng đông; mặt tiền + cửa chính (entrance=main) quay về bắc–tây bắc
+  p = LMP['tram-huong']; g = realY(place(buildTramHuong(), 'tram-huong', p[0], p[1], null, 0, 0.078));   // bệ OSM 25 × 25 m LMP.tramTop = topOf(g);
   p = LMP['vien-hdh']; g = place(buildInstitute(), 'vien-hdh', p[0], p[1], null, 0.6, 0.28); LMP.vienTop = topOf(g);
   p = LMP.yersin; g = place(buildColonial(3.2, 1.8, 2, '#f1c75a', '#c6503a'), 'yersin', p[0], p[1], null, 0, 0.3); LMP.yersinTop = topOf(g);
-  p = LMP.ga; var ra = Math.atan2(RAIL[5][0] - RAIL[4][0], RAIL[5][1] - RAIL[4][1]); g = place(buildStation(), 'ga', p[0], p[1], null, ra, 0.3); LMP.gaTop = topOf(g);
+  p = LMP.ga; var ri = 0, rb = 1e9; for (var q = 0; q < RAIL.length - 1; q++){ var dq = segD2(p[0], p[1], RAIL[q][0], RAIL[q][1], RAIL[q + 1][0], RAIL[q + 1][1]); if (dq < rb){ rb = dq; ri = q; } }   // ga song song đoạn ray gần nhất
+  var ra = Math.atan2(RAIL[ri + 1][0] - RAIL[ri][0], RAIL[ri + 1][1] - RAIL[ri][1]); g = realY(place(buildStation(), 'ga', p[0], p[1], null, ra, 0.196));   // nhà ga OSM 110 × 25 m dọc đường ray LMP.gaTop = topOf(g);
   p = LMP['bao-dai']; var bd = new THREE.Group();
-  [[0, 0, 3.2, 2.2, 2], [2.8, 1.6, 2.4, 1.8, 1], [-2.6, 1.8, 2.4, 1.8, 1], [0.6, -2.6, 2.2, 1.6, 1]].forEach(function(v, i){ var c = buildColonial(v[2], v[3], v[4], i ? '#f3d27e' : '#f0c868', '#b84a34'); c.position.set(v[0], gy(p[0] + v[0] * 0.3, p[1] + v[1] * 0.3) / 0.3 - gy(p[0], p[1]) / 0.3, v[1]); c.rotation.y = i * 0.4; bd.add(c); });
-  g = place(bd, 'bao-dai', p[0], p[1], null, 0, 0.3); LMP.baodaiTop = topOf(g);
+  [[0, 0, 3.2, 2.2, 2], [2.8, 1.6, 2.4, 1.8, 1], [-2.6, 1.8, 2.4, 1.8, 1], [0.6, -2.6, 2.2, 1.6, 1]].forEach(function(v, i){ var c = buildColonial(v[2], v[3], v[4], i ? '#f3d27e' : '#f0c868', '#b84a34'); var BS = 0.17, BR = 0.63, wx = p[0] + (v[0] * Math.cos(BR) + v[1] * Math.sin(BR)) * BS, wz = p[1] + (-v[0] * Math.sin(BR) + v[1] * Math.cos(BR)) * BS;   // cùng tỷ lệ, góc quay với place() bên dưới
+    c.position.set(v[0], (gy(wx, wz) - gy(p[0], p[1])) / (BS * VB * 50), v[1]); c.rotation.y = i * 0.4; bd.add(c); });
+  g = realY(place(bd, 'bao-dai', p[0], p[1], null, 0.63, 0.17));   // biệt thự chính OSM 25 × 13 m, trục 36° LMP.baodaiTop = topOf(g);
+  p = LMP['hai-dang']; g = place(buildLighthouse(), 'hai-dang', p[0], p[1], null, 1.745, 1);   // nền theo chân đế OSM, trục 100° từ hướng đông LMP.haidangTop = topOf(g);
   var hd = ISLANDS.filter(function(I){ return I.id === 'hon-do'; })[0], hp = LMP['hon-do'];
   g = place(buildTemple(), 'hon-do', hp[0], hp[1], G.hAt(hp[0], hp[1]) - 0.05, 0.5, 0.32); LMP.hondoTop = topOf(g);
   /* port: jetties + cruise ship */

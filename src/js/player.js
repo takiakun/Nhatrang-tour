@@ -36,8 +36,8 @@ function colAddOBB(x, z, w, d, r){ var i = COL.obbs.length; COL.obbs.push({ x:x,
   var rad = Math.hypot(w, d) / 2; for (var ix = Math.floor(x - rad); ix <= Math.floor(x + rad); ix++) for (var iz = Math.floor(z - rad); iz <= Math.floor(z + rad); iz++){ var k = ckey(ix, iz), a = COL.map.get(k); if (!a){ a = []; COL.map.set(k, a); } a.push(i); } }
 function buildCollision(B){
   [B.tubes, B.towers, B.mids, B.villas].forEach(function(list){ list.forEach(function(b){ colAddOBB(b.x, b.z, b.w, b.d, b.r); }); });
-  [['ponagar', 1.3], ['cho-dam', 1.35], ['nha-tho', 1.1], ['tram-huong', 0.75], ['vien-hdh', 1.0], ['yersin', 0.55], ['bao-dai', 1.1], ['hon-do', 0.5], ['hon-chong', 1.1]].forEach(function(c){ var p = LMP[c[0]]; colAddOBB(p[0], p[1], c[1] * 1.6, c[1] * 1.6, 0.4); });
-  [LMP.pagoda, LMP.buddha].forEach(function(p){ colAddOBB(p[0], p[1], 1.2, 1.0, 0.1); });
+  [['ponagar', 1.3], ['cho-dam', 1.05], ['nha-tho', 0.4], ['tram-huong', 0.3], ['vien-hdh', 1.0], ['yersin', 0.55], ['bao-dai', 0.7], ['hon-do', 0.5], ['hon-chong', 0.8]].forEach(function(c){ var p = LMP[c[0]]; colAddOBB(p[0], p[1], c[1] * 1.6, c[1] * 1.6, 0.4); });
+  [LMP.pagoda, LMP.buddha].forEach(function(p){ colAddOBB(p[0], p[1], 0.75, 0.6, 0.1); });
   [LMP.cableA, LMP.cableB].forEach(function(p){ colAddOBB(p[0], p[1], 0.45, 0.45, 0); });
   ROADS_S.concat([RAIL_S]).forEach(function(R){ R.pts.forEach(function(p){ if (!p.br) return; var k = ckey(Math.floor(p.x), Math.floor(p.z)), a = DECK.get(k); if (!a){ a = []; DECK.set(k, a); } a.push({ x:p.x, z:p.z, y:p.y, r:Math.max(0.3, (R.rail ? 0.5 : R.w + 0.16) / 2 + 0.04) }); }); });
 }
