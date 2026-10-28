@@ -120,9 +120,9 @@ var btnLabels = document.getElementById('btnLabels');
 function syncLabelsBtn(){ btnLabels.setAttribute('aria-pressed', String(labelsOn)); btnLabels.setAttribute('aria-label', labelsOn ? 'Ẩn bảng tên' : 'Hiện bảng tên'); }
 function toggleLabels(){ labelsOn = !labelsOn; try { localStorage.setItem('nt3d-labels', labelsOn ? '1' : '0'); } catch (e){} syncLabelsBtn(); }
 var btnTime = document.getElementById('btnTime'), btnTimeText = document.getElementById('btnTimeText'), TOD_NAMES = ['Ban ngày', 'Hoàng hôn', 'Ban đêm'];
-function syncTimeBtn(){ var i = Math.round(todTarget); btnTimeText.textContent = TOD_NAMES[i]; btnTime.setAttribute('aria-label', 'Đổi thời điểm, hiện là ' + TOD_NAMES[i].toLowerCase()); btnTime.dataset.tod = String(i); }
+function syncTimeBtn(){ var i = Math.round(todTarget), name = WX.real ? 'Giờ thật' : TOD_NAMES[i]; btnTimeText.textContent = name; btnTime.setAttribute('aria-label', 'Đổi thời điểm, hiện là ' + name.toLowerCase()); btnTime.dataset.tod = String(i); }
 function themeIsDark(){ var t = document.documentElement.getAttribute('data-theme'); if (t === 'dark') return true; if (t === 'light') return false; return matchMedia('(prefers-color-scheme: dark)').matches; }
-function onSchemeChange(){ if (todUser || !ready) return; todTarget = themeIsDark() ? 2 : 0; syncTimeBtn(); }
+function onSchemeChange(){ if (todUser || WX.real || !ready) return; todTarget = themeIsDark() ? 2 : 0; syncTimeBtn(); }
 var rail = document.getElementById('rail'), chips = [], card = document.getElementById('card');
 function select(i){ var L = LM[i]; current = i; hideHint();
   document.getElementById('cardTag').textContent = L.cat; document.getElementById('cardTitle').textContent = L.name; document.getElementById('cardDesc').textContent = L.desc;
@@ -152,7 +152,10 @@ function setupUI(){
   document.getElementById('btnSound').addEventListener('click', function(){ setSound(!AU.want); }); syncSoundBtn(); armAudio();
   addEventListener('keydown', function(e){ if ((e.key === 'l' || e.key === 'L') && !e.metaKey && !e.ctrlKey && !e.altKey && !(e.target.closest && e.target.closest('input,textarea'))) toggleLabels(); });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function(){ labels.forEach(function(l){ l.w = 0; }); });
-  btnTime.addEventListener('click', function(){ todUser = true; todTarget = (Math.round(todTarget) + 1) % 3; if (reduceMotion){ tod = todTarget; applyTod(tod); } syncTimeBtn(); });
+  // Giờ thật → Ban ngày → Hoàng hôn → Ban đêm → Giờ thật
+  btnTime.addEventListener('click', function(){ todUser = true;
+    if (WX.real){ WX.real = false; todTarget = 0; } else if (Math.round(todTarget) === 2){ WX.real = true; todTarget = realTod(); } else todTarget = Math.round(todTarget) + 1;
+    if (reduceMotion){ tod = todTarget; } applyTod(tod); syncTimeBtn(); });
   try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', onSchemeChange); } catch (e){}
   new MutationObserver(onSchemeChange).observe(document.documentElement, { attributes:true, attributeFilter:['data-theme'] });
   btnSpin.addEventListener('click', function(){ setSpin(!controls.autoRotate); });
@@ -182,7 +185,8 @@ function enterPlay(){ if (PLAY.on || !PL) return; PLAY.on = true; PLAY.lastDrag 
   controls.enablePan = false; controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE; controls.touches.ONE = THREE.TOUCH.ROTATE; controls.minDistance = 0.35; controls.maxDistance = 9; controls.maxPolarAngle = 1.45;
   document.getElementById('btnPlay').setAttribute('aria-pressed', 'true'); document.getElementById('playHud').hidden = false; syncPlayBtns(); DP.valid = false;
   flyTo(new THREE.Vector3(PL.x, PL.y + 0.09, PL.z), 1.5, 1.08, PL.yaw + Math.PI, 1600); }
-function exitPlay(){ if (!PLAY.on) return; PLAY.on = false; document.body.classList.remove('playing'); keys = {}; joy.on = false; joy.x = joy.y = 0;
+function setBoost(on){ boostBtn = on; var bb = document.getElementById('btnBoost'); if (bb){ bb.setAttribute('aria-pressed', String(on)); bb.textContent = on ? 'Đang tăng ga' : 'Tăng ga'; } }
+function exitPlay(){ if (!PLAY.on) return; PLAY.on = false; setBoost(false); document.body.classList.remove('playing'); keys = {}; joy.on = false; joy.x = joy.y = 0;
   controls.enablePan = true; controls.mouseButtons.LEFT = THREE.MOUSE.PAN; controls.touches.ONE = THREE.TOUCH.PAN; controls.minDistance = saved.min; controls.maxDistance = saved.max; controls.maxPolarAngle = saved.pol;
   document.getElementById('btnPlay').setAttribute('aria-pressed', 'false'); document.getElementById('playHud').hidden = true;
   var s2 = sphOf(); flyTo(new THREE.Vector3(PL.x, 0, PL.z), 26, 0.9, s2.th, 1300); }
@@ -198,9 +202,10 @@ function setupPlay(){
   addEventListener('blur', function(){ keys = {}; });
   document.getElementById('btnMount').addEventListener('click', function(){ toggleMount(); });
   document.getElementById('btnHorn').addEventListener('click', honk);
+  ['playHud', 'joy'].forEach(function(id){ document.getElementById(id).addEventListener('contextmenu', function(e){ e.preventDefault(); }); });
   var bb = document.getElementById('btnBoost');
-  ['pointerdown'].forEach(function(ev){ bb.addEventListener(ev, function(e){ boostBtn = true; bb.setPointerCapture(e.pointerId); e.preventDefault(); }); });
-  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function(ev){ bb.addEventListener(ev, function(){ boostBtn = false; }); });
+  // Tăng ga dạng công tắc: chạm một lần để giữ ga, chạm lần nữa để nhả (không phải giữ ngón tay)
+  bb.addEventListener('pointerdown', function(e){ e.preventDefault(); setBoost(!boostBtn); });
   var jz = document.getElementById('joy'), knob = document.getElementById('joyKnob'), jid = null;
   function jset(e){ var r = jz.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, dx = e.clientX - cx, dy = e.clientY - cy, R2 = r.width / 2, l = Math.hypot(dx, dy); if (l > R2){ dx *= R2 / l; dy *= R2 / l; }
     joy.x = dx / R2; joy.y = -dy / R2; knob.style.transform = 'translate(' + dx.toFixed(0) + 'px,' + dy.toFixed(0) + 'px)'; }
@@ -264,7 +269,7 @@ function frame(now){
   updateShadow(dist);
   updateDetail(PLAY.on && PL ? PL.x : controls.target.x, PLAY.on && PL ? PL.z : controls.target.z, PLAY.on || dist < 55);
   renderer.render(scene, camera);
-  updateLabels(dist); updateHud(dist); updateAudio(dt, dist); governor(rawDt);
+  updateWeather(dt, ts, dist); updateLabels(dist); updateHud(dist); updateAudio(dt, dist); governor(rawDt);
 }
 
 /* ---------- bộ điều tốc: FPS thấp kéo dài thì hạ chất lượng từng bậc ---------- */
@@ -304,9 +309,9 @@ async function build(){
   buildCrowd(); buildPlayer(B);
   ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color:'#f2592c', transparent:true, opacity:0.9, depthWrite:false, side:THREE.DoubleSide })); ring.visible = false; ring.renderOrder = 3; scene.add(ring);
   setupLM(); setupUI(); setupPlay();
-  todTarget = tod = themeIsDark() ? 2 : 0; applyTod(tod); syncTimeBtn();
+  initWeather(); todTarget = tod = realTod(); applyTod(tod); syncTimeBtn();
   computeHome(); setCam(homeTarget, homeDist, HOME_PHI, HOME_TH); controls.update(); setSpin(!reduceMotion);
-  window.__nt = { PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return keys; }, G:G, B:B, T:T, ROADS_S:ROADS_S, RAIL_S:RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:controls, setCam:setCam, audio:AU, gov:GOV, lite:LITE };
+  window.__nt = { PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return keys; }, G:G, B:B, T:T, ROADS_S:ROADS_S, RAIL_S:RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:controls, setCam:setCam, audio:AU, gov:GOV, lite:LITE, wx:WX, sunPos:sunPos };
   ready = true; loader.hidden = true; requestAnimationFrame(frame);
 }
 build().catch(function(e){ console.error(e); fail('Không dựng được bản đồ: ' + (e && e.message ? e.message : e)); });

@@ -657,5 +657,6 @@ function applyTod(k){
   if (typeof crowdU !== 'undefined'){ var cl = crowdU.uLight.value; cl.copy(hemi.color).multiplyScalar(hemi.intensity * 0.95); _t1.copy(sun.color).multiplyScalar(sun.intensity * 0.45); cl.add(_t1); cl.r = Math.max(cl.r, 0.3); cl.g = Math.max(cl.g, 0.33); cl.b = Math.max(cl.b, 0.45); }
   var gk = lerp(a.glow, b.glow, f); glowMats.forEach(function(g){ g.m.emissiveIntensity = g.base + (g.peak - g.base) * gk; });
   lampK = lerp(a.lamp, b.lamp, f); if (lampPts){ lampPts.material.opacity = lampK; lampPts.visible = lampK > 0.01; } if (carPts){ carPts.material.opacity = lampK * 0.9; carPts.visible = lampK > 0.01; }
+  if (typeof weatherLight === 'function') weatherLight();
   shadowDirty = true;
 }

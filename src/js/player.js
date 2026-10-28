@@ -137,8 +137,8 @@ function animKenney(dt){ var K = PL.ch.k; if (!K) return; var want = 'idle', ts 
   if (PL.mode === 'bike') want = K.act.drive ? 'drive' : 'sit';
   else if (PL.mode === 'swim'){ want = 'sprint'; ts = 0.45 + PL.speed * 0.25; }
   else if (air) want = PL.vy > 0 ? 'jump' : 'fall';
-  else if (PL.speed > 0.45){ want = 'sprint'; ts = clamp(PL.speed / 0.72, 0.6, 1.4); }
-  else if (PL.speed > 0.03){ want = 'walk'; ts = clamp(PL.speed / 0.3, 0.5, 1.5); }
+  else if (PL.speed > 0.7){ want = 'sprint'; ts = clamp(PL.speed / 1.1, 0.6, 1.4); }
+  else if (PL.speed > 0.03){ want = 'walk'; ts = clamp(PL.speed / 0.5, 0.5, 1.5); }
   if (K.cur !== want && K.act[want]){ K.act[want].reset().fadeIn(0.15).play(); if (K.act[K.cur]) K.act[K.cur].fadeOut(0.15); K.cur = want; }
   if (K.act[want]) K.act[want].timeScale = ts;
   K.model.rotation.x = PL.mode === 'swim' ? 1.35 : 0; K.model.position.z = PL.mode === 'swim' ? -1.2 : 0;
@@ -191,7 +191,7 @@ function updatePlayer(dt){
   } else {
     var th = controls.getAzimuthalAngle(), fx = -Math.sin(th), fz = -Math.cos(th), rx = Math.cos(th), rz = -Math.sin(th);
     var mx = fx * inp.f + rx * inp.s, mz = fz * inp.f + rz * inp.s, ml = Math.hypot(mx, mz);
-    var swim = PL.mode === 'swim', spd = swim ? (inp.run ? 2.8 : 1.2) : (inp.run ? 0.72 : 0.32);
+    var swim = PL.mode === 'swim', spd = swim ? (inp.run ? 2.8 : 1.2) : (inp.run ? 1.1 : 0.5);   // đi bộ, chạy luôn chậm hơn xe máy (1.6 / 2.4)
     var tgt = ml > 0.05 ? spd * Math.min(1, ml) : 0; PL.speed += (tgt - PL.speed) * Math.min(1, dt * 8);
     if (ml > 0.05){ var want = Math.atan2(mx, mz), dy = Math.atan2(Math.sin(want - PL.yaw), Math.cos(want - PL.yaw)); PL.yaw += dy * Math.min(1, dt * 10); }
     if (PL.speed > 0.001){ var np = { x:PL.x + Math.sin(PL.yaw) * PL.speed * dt, z:PL.z + Math.cos(PL.yaw) * PL.speed * dt };
@@ -203,7 +203,7 @@ function updatePlayer(dt){
     if (PL.mode === 'swim'){ PL.vy = 0; PL.y += (-0.045 - PL.y) * Math.min(1, dt * 6); }
     else { if ((keys.Space) && PL.y <= floorY + 0.002 && PL.vy <= 0) PL.vy = 0.55; PL.vy -= 2.6 * dt; PL.y += PL.vy * dt; if (PL.y <= floorY){ PL.y = floorY; PL.vy = 0; } }
     PL.phase += dt * (PL.mode === 'swim' ? 5 + PL.speed * 5 : 6 + PL.speed * 22) * (PL.speed > 0.02 || PL.mode === 'swim' ? 1 : 0.15);
-    var s = Math.sin(PL.phase), amp = clamp(PL.speed / 0.3, 0, 1.4);
+    var s = Math.sin(PL.phase), amp = clamp(PL.speed / 0.5, 0, 1.4);
     if (PL.mode === 'swim'){ C.body.rotation.set(1.3, 0, Math.sin(PL.phase * 0.5) * 0.15); C.body.position.y = 0.55;
       C.arms.forEach(function(a, i){ a.rotation.set(-(PL.phase + i * Math.PI) % (Math.PI * 2), 0, (i ? -1 : 1) * 0.15); });
       C.legs.forEach(function(l, i){ l.rotation.set(Math.sin(PL.phase * 2.2 + i * Math.PI) * 0.35, 0, 0); }); C.head.rotation.set(-0.9, 0, 0); }

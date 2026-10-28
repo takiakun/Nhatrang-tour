@@ -1,6 +1,6 @@
 # Nha Trang 3D — hướng dẫn cho Claude Code
 
-Bản đồ 3D phong cách hoạt hình của vịnh Nha Trang, chạy trên web. Gần như toàn bộ thế giới được **sinh bằng code**: địa hình, nhà ống, cây, người, xe, thuyền, âm thanh đều tạo lúc tải trang (~1–2 s). Ngoại lệ là các mô hình Kenney (CC0): nhà, ô tô, thuyền, tàu hỏa (`src/js/models.js`), nhân vật chính có xương (`src/js/character.js`) và tấm sprite đám đông vẽ sẵn (`src/js/crowd-sheet.js`). Cả ba đều là file sinh ra, nhúng thẳng trong trang.
+Bản đồ 3D phong cách hoạt hình của vịnh Nha Trang, chạy trên web. Gần như toàn bộ thế giới được **sinh bằng code**: địa hình, nhà ống, cây, người, xe, thuyền, âm thanh đều tạo lúc tải trang (~1–2 s). Địa hình, đảo và lớp phủ mặt đất lấy từ dữ liệu thật (`src/js/terrain-data.js`); thời tiết lấy trực tiếp từ Open-Meteo lúc chạy. Ngoại lệ khác là các mô hình Kenney (CC0): nhà, ô tô, thuyền, tàu hỏa (`src/js/models.js`), nhân vật chính có xương (`src/js/character.js`) và tấm sprite đám đông vẽ sẵn (`src/js/crowd-sheet.js`). Cả ba đều là file sinh ra, nhúng thẳng trong trang.
 
 ## Lệnh
 
@@ -8,6 +8,7 @@ Bản đồ 3D phong cách hoạt hình của vịnh Nha Trang, chạy trên web
 - `node build.js --watch`: tự build lại khi sửa file.
 - `npm run serve`: phục vụ `dist/` ở http://localhost:8080. Cũng có thể mở thẳng `dist/index.html`.
 - `node tools/convert-models.js`: chuyển các GLB trong `assets/models/` (theo danh sách `LIST` trong file) thành `src/js/models.js`. Chạy lại khi thêm/bớt mô hình; `models.js` là file sinh ra, đừng sửa tay.
+- `node tools/fetch-terrain.js [--preview]`: tải Copernicus DEM GLO-30, AWS Terrain Tiles và ESA WorldCover vào `.cache/` (bỏ qua khi commit, cần `curl` và `npm i` để có `geotiff`), rút gọn thành `src/js/terrain-data.js` (độ cao 100 m, lớp phủ 50 m nén RLE). `--preview` ghi `.cache/terrain-preview.png` so độ cao thật với đường bờ ước lượng.
 - `node tools/pack-character.js`: đóng gói nhân vật chính (GLB có xương, chỉ giữ vài hoạt ảnh, nhúng texture) thành `src/js/character.js`.
 - `node tools/render-crowd.js`: vẽ 7 nhân vật Kenney thành tấm sprite đám đông (8 hướng × 4 khung, WebP) → `src/js/crowd-sheet.js`. Cần Playwright; không có mạng thì đặt `THREE_DIR` trỏ tới thư mục chứa `three.min.js` và `GLTFLoader.js` bản r147.
 - `npm test`: build rồi chạy `tests/smoke.js`. Cần `npm i` trước để có Playwright, và `npx playwright install chromium` nếu máy chưa có Chromium.
@@ -16,7 +17,7 @@ Luôn chạy `npm test` sau khi sửa. Smoke test chạy 3 cấu hình (máy tí
 
 ## Ràng buộc quan trọng
 
-- **Các file trong `src/js/` KHÔNG phải module.** Build nối chúng theo thứ tự `geo → models → scene → crowd-sheet → crowd → character → player → audio → ui` vào **một IIFE chung** (`'use strict'`). Chúng dùng chung biến toàn cục của IIFE, và `scene.js` có `return` ở cấp cao nhất để dừng khi thiếu WebGL. Không tách thành `<script>` riêng; nếu chuyển sang ES modules thì phải refactor có chủ đích.
+- **Các file trong `src/js/` KHÔNG phải module.** Build nối chúng theo thứ tự `terrain-data → geo → models → scene → crowd-sheet → crowd → character → player → audio → weather → ui` vào **một IIFE chung** (`'use strict'`). Chúng dùng chung biến toàn cục của IIFE, và `scene.js` có `return` ở cấp cao nhất để dừng khi thiếu WebGL. Không tách thành `<script>` riêng; nếu chuyển sang ES modules thì phải refactor có chủ đích.
 - **three.js r147 bản UMD** từ jsDelivr (`build/three.min.js` + `examples/js/controls/OrbitControls.js` + `examples/js/loaders/GLTFLoader.js`, chỉ dùng cho nhân vật chính). Thư mục `examples/js` đã bị xoá từ r160, nên muốn nâng cấp three thì phải chuyển sang ES modules / import map.
 - Nếu tiếp tục đăng làm **Claude artifact**: script chỉ được tải từ cdnjs, jsDelivr, unpkg; không fetch dữ liệu ngoài; mọi asset phải nhúng (data URI) hoặc sinh bằng code. Vì vậy mọi mô hình được nhúng base64 (trang ~1,9 MB, gzip ~0,75 MB). Khi deploy riêng (Vercel, GitHub Pages…) thì không còn giới hạn này.
 - **Bug của r147**: `InstancedMesh` cull theo bounding sphere của geometry gốc. Vì vậy `instChunks()` chia instance theo lưới 4×4 và gán `boundingSphere` thủ công cho từng chunk. Mesh động (xe, thuyền) đặt `frustumCulled = false`.
@@ -34,6 +35,8 @@ Luôn chạy `npm test` sau khi sửa. Smoke test chạy 3 cấu hình (máy tí
 | `src/page.html` | Khung HTML: header, toolbar, thẻ thông tin, HUD lái xe, loader. Có placeholder cho CSS và JS. |
 | `src/styles.css` | Giao diện. Màu là token trên `:root`, có dark mode. |
 | `src/js/geo.js` | **JS thuần, không dùng three.js.** Dữ liệu địa lý (`COAST`, `RIVERS`, `ISLANDS`, `RIDGES`/`HILLS`, `DIST` khu phố, `PONDS`, `ROADS`, `RAIL`, `LM_DEF` địa danh, `GEO_LABELS`, `ROAD_LABELS`), hàm độ cao `H(x, z)`, lưới `buildGrid()` (độ cao, nhiễu, vùng, độ dốc), tô màu mặt đất `paintGround()`, sinh nhà `genBuildings()`, sinh cây `genTrees()`. Chạy được trong Node để test. |
+| `src/js/terrain-data.js` | **File sinh ra** bởi `tools/fetch-terrain.js`: độ cao thật (Int16, dm), lớp phủ ESA WorldCover (RLE). `geo.js` giải mã thành `TR` (kèm trường khoảng cách tới đất). |
+| `src/js/weather.js` | Chế độ **Giờ thật** (vị trí mặt trời theo giờ Nha Trang: `sunPos`, `todFromSun`, hướng nắng `realSunDir`) và thời tiết Open-Meteo (`fetchWeather` mỗi 15 phút: mây, mưa, gió, nhiệt độ). `weatherLight()` chạy cuối `applyTod()`; mưa là lớp canvas 2D `#rain`. Không tải được thì trời quang, không lỗi. |
 | `src/js/models.js` | **File sinh ra** bởi `tools/convert-models.js`. `MODEL_DATA[id]` = toạ độ Int16, pháp tuyến Int8, màu đỉnh Uint8 (đã nướng từ texture bảng màu), mặt nạ mái, chỉ số Uint16, tất cả base64. |
 | `src/js/crowd-sheet.js`, `src/js/character.js` | **File sinh ra.** Tấm sprite đám đông Kenney (WebP base64, `KENNEY_ROWS`) và GLB nhân vật chính (`CHAR_GLB.player`). |
 | `src/js/scene.js` | Renderer, ánh sáng, helper vật liệu và instancing, các hàm dựng địa danh (Tháp Bà, Chợ Đầm, Long Sơn, Nhà thờ Núi, Trầm Hương…), địa hình kèm vá mặt đất độ nét cao (`DU`/`DP`, `updateDetail`), shader nước, viền bàn, cầu tự động, thành phố, cây, thuyền, làng bè, giao thông, tàu hỏa, đèn đường, mây, chim, hệ thời gian trong ngày `TOD`/`applyTod`. |
@@ -41,6 +44,13 @@ Luôn chạy `npm test` sau khi sửa. Smoke test chạy 3 cấu hình (máy tí
 | `src/js/player.js` | Nhân vật chính (texture atlas `atlasCanvas()` + các khối), xe máy `buildBike()`, va chạm (spatial hash của OBB nhà + mặt cầu `DECK` + cầu tàu `JETTIES`), `groundAt()`, vật lý đi bộ, chạy, nhảy, bơi, lái xe (`updatePlayer`), camera bám theo (`followCamera`), dịch chuyển (`teleportTo`). |
 | `src/js/audio.js` | Âm thanh Web Audio tổng hợp hoàn toàn bằng code: lớp nền (sóng, gió, phố, dế đêm) đổi âm lượng theo môi trường quanh người nghe (`envAt`), âm ngắn (còi xe `horn`, chim `chirp`, té nước, còi tàu, bước chân), tiếng máy xe theo tốc độ. `updateAudio()` gọi mỗi khung từ `frame()`. Chỉ bắt đầu sau thao tác đầu tiên của người dùng (`armAudio`); trạng thái bật/tắt lưu ở `localStorage`. |
 | `src/js/ui.js` | OrbitControls (chế độ bản đồ: kéo để pan; chế độ lái: kéo để xoay), zoom về phía con trỏ, bóng đổ bám theo camera (`updateShadow`), nhãn chống chồng lấn, HUD (thước tỷ lệ, toạ độ), thẻ địa danh, chế độ lái (`enterPlay`/`exitPlay`, phím, joystick), vòng lặp `frame()`, trình tự dựng `build()`. |
+
+## Địa hình thật
+
+- `H(x, z)` có hai nhánh. Có `TR` (dữ liệu thật) thì dùng `realH()`: **đất liền giữ đường bờ ước lượng `coastX`** (vì đường Trần Phú, bãi biển, khu phố, đám đông đều bám theo nó; khớp thực tế khá tốt), nền phố phẳng như cũ, còn đồi núi lấy độ cao Copernicus (bỏ phần dưới ~15 m vì đó là mô hình bề mặt có cả mái nhà, tán cây), các đồi nhỏ có địa danh trong `HILLS` giữ dáng ước lượng. Ngoài khơi (cách bờ ước lượng > 3 đơn vị) thì **đảo lấy hình dạng và độ cao thật**; `ISLANDS` chỉ còn dùng cho Hòn Đỏ (nhỏ hơn lưới 100 m) và khi bấm chọn đảo. Không có `TR` thì dùng địa hình ước lượng cũ (`mainlandH`, `RIDGES`, `ISLANDS`).
+- Độ sâu biển vẫn ước lượng theo khoảng cách tới đất gần nhất (`TR.dist`): dữ liệu độ sâu công khai cho vịnh Nha Trang (Terrarium/ETOPO) gần như trống.
+- Lớp phủ: ruộng (`zone 2`) và ao đầm (`zone 3`) theo ESA WorldCover; ngoài khu phố, màu đất (`LC_TINT`) và mật độ cây (`LC_TREES`) theo loại phủ.
+- Ghi nguồn bắt buộc (Copernicus, ESA WorldCover CC BY 4.0, Open-Meteo CC BY 4.0) nằm trong `.attrib` dưới thước tỷ lệ. Đừng xoá.
 
 ## Mô hình Kenney
 
@@ -65,7 +75,7 @@ Luôn chạy `npm test` sau khi sửa. Smoke test chạy 3 cấu hình (máy tí
 
 ## Hạn chế đã biết
 
-- Địa lý dựng theo toạ độ ước lượng, không phải dữ liệu đo đạc (chưa dùng OpenStreetMap hay DEM thật).
+- Địa hình và đảo đã là dữ liệu thật, nhưng **đường bờ đất liền, sông, đường xá, khu phố vẫn là toạ độ ước lượng** (chưa dùng OpenStreetMap). Vài thứ đặt theo toạ độ ước lượng trên đảo (làng chài, lồng bè) có thể rơi xuống nước và bị bỏ qua.
 - Đám đông là sprite 2D vẽ sẵn (không có xương); nhân vật chính có xương nhưng chưa có hoạt ảnh bơi riêng (dùng dáng chạy, xoay ngang).
 - Người đi bộ và xe không né nhân vật, cũng không né nhau.
 - Hình 3D chưa được kiểm tra tự động; chỉ có smoke test logic.
