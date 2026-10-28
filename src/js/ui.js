@@ -59,7 +59,7 @@ function updateShadow(dist){
 }
 
 /* ---------- landmarks registry ---------- */
-var TOPKEY = { ponagar:'ponagarTop', 'hon-chong':'honchongTop', 'cho-dam':'chodamTop', 'long-son':'buddhaTop', 'nha-tho':'nhathoTop', 'tram-huong':'tramTop', 'vien-hdh':'vienTop', yersin:'yersinTop', ga:'gaTop', 'bao-dai':'baodaiTop', 'hon-do':'hondoTop' };
+var TOPKEY = { 'hai-dang':'haidangTop', ponagar:'ponagarTop', 'hon-chong':'honchongTop', 'cho-dam':'chodamTop', 'long-son':'buddhaTop', 'nha-tho':'nhathoTop', 'tram-huong':'tramTop', 'vien-hdh':'vienTop', yersin:'yersinTop', ga:'gaTop', 'bao-dai':'baodaiTop', 'hon-do':'hondoTop' };
 function setupLM(){ LM_DEF.forEach(function(d, i){ var L = {}; for (var k in d) L[k] = d[k]; L.i = i;
   var p = d.id === 'long-son' ? LMP.buddha : LMP[d.id], ax = p[0], az = p[1], ay;
   if (d.id === 'cap-treo'){ L.anchor = LMP.cableMid.clone(); L.focus = LMP.cableFocus.clone(); ax = L.anchor.x; az = L.anchor.z; }
@@ -75,22 +75,34 @@ function makeLabels(){
     el.setAttribute('aria-label', L.name); el.addEventListener('click', function(){ select(L.i); }); labelLayer.appendChild(el); labels.push({ el:el, pos:L.anchor, lm:L, kind:'lm', vis:true }); });
   GEO_LABELS.forEach(function(g){ var p = P(g.ll[0], g.ll[1]), el = document.createElement('div'); el.className = 'geo'; el.textContent = g.t; labelLayer.appendChild(el);
     labels.push({ el:el, pos:new THREE.Vector3(p[0], Math.max(G.hAt(p[0], p[1]), 0) + g.y, p[1]), kind:'geo', max:g.max, vis:true }); });
-  roadLabels().forEach(function(g){ var z = P(g.ll[0], 0)[1], x = g.ll[1] == null ? coastX(z) - g.off : P(g.ll[0], g.ll[1])[0], el = document.createElement('div'); el.className = 'road'; el.textContent = g.t; labelLayer.appendChild(el);
-    labels.push({ el:el, pos:new THREE.Vector3(x, G.hAt(x, z) + 0.3, z), kind:'road', vis:true }); });
+  roadLabels().forEach(function(g){ var x = g.x, z = g.z; if (x == null){ z = P(g.ll[0], 0)[1]; x = g.ll[1] == null ? coastX(z) - g.off : P(g.ll[0], g.ll[1])[0]; }
+    var el = document.createElement('div'); el.className = g.minor ? 'road minor' : 'road'; el.textContent = g.t; labelLayer.appendChild(el); var y = Math.max(G.hAt(x, z), 0) + 0.3;
+    labels.push({ el:el, pos:new THREE.Vector3(x, y, z), dir:g.dx != null ? new THREE.Vector3(x + g.dx, y, z + g.dz) : null, kind:'road', minor:!!g.minor, vis:true }); });
   labels.forEach(function(l){ l.el.style.visibility = 'hidden'; l.vis = false; }); }
 // Nhãn tên đường: có OSM thì lấy tên thật của đường lớn (đặt ở giữa đoạn dài nhất mang tên đó), không thì dùng ROAD_LABELS ước lượng
-function roadLabels(){ if (!OSM) return ROAD_LABELS; var best = {};
-  ROADS_S.forEach(function(R){ if (!R.name || R.cls > 3) return; if (!best[R.name] || R.L > best[R.name].L) best[R.name] = R; });
-  return Object.keys(best).filter(function(n){ return best[n].L > 6; }).map(function(n){ var R = best[n], p = R.pts[R.pts.length >> 1], ll = toLL(p.x, p.z); return { t:/^(Đường|Đại lộ|Quốc lộ|Tỉnh lộ)/.test(n) ? n : 'Đường ' + n, ll:ll }; }); }
+// Mọi đường có tên trong OSM: đặt nhãn ở giữa mỗi quãng dài (đường lớn ~1,2 km một nhãn, đường nhỏ ~500 m), các nhãn cùng tên cách nhau đủ xa.
+// Nhãn xoay theo hướng đường (dx, dz); đường nhỏ, hẻm chỉ hiện khi nhìn gần.
+function roadLabels(){ if (!OSM) return ROAD_LABELS; var out = [], byName = {};
+  OSM.roads.forEach(function(R){ if (!R.name) return; (byName[R.name] = byName[R.name] || []).push(R); });
+  Object.keys(byName).forEach(function(n){ var list = byName[n], c = Math.min.apply(null, list.map(function(R){ return R.c; })), minor = c > 4, step = minor ? 10 : 24, gap = minor ? 8 : 18, got = [];
+    var t = /^(Đường|Đại lộ|Quốc lộ|Tỉnh lộ|Hẻm|Kiệt|Ngõ|Ngách|Cầu|Phố)\b/i.test(n) ? n : 'Đường ' + n;
+    list.forEach(function(R){ var Q = R.pts, acc = step * 0.5, L = 0;
+      for (var i = 0; i < Q.length - 1; i++){ var dx = Q[i + 1][0] - Q[i][0], dz = Q[i + 1][1] - Q[i][1], l = Math.hypot(dx, dz); L += l;
+        while (acc < L && l > 0.3){ var f = 1 - (L - acc) / l, x = Q[i][0] + dx * f, z = Q[i][1] + dz * f; acc += step;
+          if (!inBoard(x, z, 1) || G.hAt(x, z) < 0.05 || got.some(function(q){ return Math.hypot(q[0] - x, q[1] - z) < gap; })) continue;
+          got.push([x, z]); out.push({ t:t, x:x, z:z, dx:dx / l, dz:dz / l, minor:minor }); } }
+      if (!got.length && L > (minor ? 3 : 4)){ var m = Q[Q.length >> 1], m2 = Q[Math.min(Q.length - 1, (Q.length >> 1) + 1)], ml = Math.hypot(m2[0] - m[0], m2[1] - m[1]) || 1;   // đường ngắn: một nhãn giữa đường
+        if (G.hAt(m[0], m[1]) > 0.05){ got.push(m); out.push({ t:t, x:m[0], z:m[1], dx:(m2[0] - m[0]) / ml, dz:(m2[1] - m[1]) / ml, minor:minor }); } } }); });
+  return out; }
 function hits(x0, y0, x1, y1){ for (var i = 0; i < placed.length; i++){ var p = placed[i]; if (x0 < p[2] && x1 > p[0] && y0 < p[3] && y1 > p[1]) return true; } return false; }
-function prio(L){ return (L.lm && L.lm.i === current) ? -1e9 : (L.kind === 'geo' ? 40 : (L.kind === 'road' ? 60 : 0)); }
+function prio(L){ return (L.lm && L.lm.i === current) ? -1e9 : (L.kind === 'geo' ? 40 : (L.kind === 'road' ? (L.minor ? 90 : 60) : 0)); }
 function updateLabels(dist){
   var w = innerWidth, h = innerHeight, cand = []; placed.length = 0;
   for (var i = 0; i < labels.length; i++){ var L = labels[i]; L.show = false;
     var isSel = L.lm && L.lm.i === current;
     if (!labelsOn && !isSel) continue;
     if (L.kind === 'geo' && dist > homeDist * L.max) continue;
-    if (L.kind === 'road' && dist > 60) continue;
+    if (L.kind === 'road' && (dist > (L.minor ? 24 : 60) || Math.abs(L.pos.x - controls.target.x) + Math.abs(L.pos.z - controls.target.z) > dist * 2.2)) continue;
     pv.copy(L.pos).project(camera);
     if (!(pv.z < 1 && pv.x > -1.1 && pv.x < 1.1 && pv.y > -1.15 && pv.y < 1.2)) continue;
     L.sx = (pv.x * 0.5 + 0.5) * w; L.sy = (-pv.y * 0.5 + 0.5) * h; L.d = camera.position.distanceTo(L.pos); cand.push(L); }
@@ -98,10 +110,13 @@ function updateLabels(dist){
   for (var j = 0; j < cand.length; j++){ var C2 = cand[j];
     if (C2.kind === 'lm'){ var far = C2.d > homeDist * 0.55; if (far !== C2.far){ C2.el.classList.toggle('far', far); C2.far = far; C2.w = 0; } }
     if (!C2.w){ C2.w = C2.el.offsetWidth; C2.h = C2.el.offsetHeight; }
-    var mid = C2.kind !== 'lm', x0 = C2.sx - C2.w / 2 - 3, x1 = C2.sx + C2.w / 2 + 3, y0 = mid ? C2.sy - C2.h / 2 - 2 : C2.sy - C2.h - 2, y1 = mid ? C2.sy + C2.h / 2 + 2 : C2.sy + 1;
+    var bw = C2.w, bh = C2.h; C2.rot = 0;
+    if (C2.dir){ pv.copy(C2.dir).project(camera); var ax = (pv.x * 0.5 + 0.5) * w - C2.sx, ay = (-pv.y * 0.5 + 0.5) * h - C2.sy, an = Math.atan2(ay, ax) * 180 / Math.PI;   // xoay theo hướng đường trên màn hình, chữ không lộn ngược
+      if (an > 90) an -= 180; if (an < -90) an += 180; C2.rot = an; var ca = Math.abs(Math.cos(an * Math.PI / 180)), sa = Math.abs(Math.sin(an * Math.PI / 180)); bw = C2.w * ca + C2.h * sa; bh = C2.w * sa + C2.h * ca; }
+    var mid = C2.kind !== 'lm', x0 = C2.sx - bw / 2 - 3, x1 = C2.sx + bw / 2 + 3, y0 = mid ? C2.sy - bh / 2 - 2 : C2.sy - bh - 2, y1 = mid ? C2.sy + bh / 2 + 2 : C2.sy + 1;
     if (prio(C2) > -1 && hits(x0, y0, x1, y1)) continue;
     placed.push([x0, y0, x1, y1]); C2.show = true;
-    C2.el.style.transform = 'translate3d(' + C2.sx.toFixed(1) + 'px,' + C2.sy.toFixed(1) + 'px,0) translate(-50%,' + (mid ? '-50%' : '-100%') + ')';
+    C2.el.style.transform = 'translate3d(' + C2.sx.toFixed(1) + 'px,' + C2.sy.toFixed(1) + 'px,0)' + (C2.rot ? ' rotate(' + C2.rot.toFixed(1) + 'deg)' : '') + ' translate(-50%,' + (mid ? '-50%' : '-100%') + ')';   // xoay quanh tâm nhãn
     if (C2.kind === 'lm') C2.el.style.zIndex = String(1000 - Math.round(C2.d)); }
   for (i = 0; i < labels.length; i++){ var M = labels[i]; if (M.show !== M.vis){ M.el.style.visibility = M.show ? 'visible' : 'hidden'; M.vis = M.show; } } }
 
@@ -165,7 +180,24 @@ function setupUI(){
   btnSpin.addEventListener('click', function(){ setSpin(!controls.autoRotate); });
   controls.addEventListener('start', function(){ if (controls.autoRotate) setSpin(false); hideHint(); });
   document.getElementById('btnHome').addEventListener('click', function(){ closeCard(); flyTo(homeTarget, homeDist, HOME_PHI, HOME_TH, 1700); });
+  var menuBtn = document.getElementById('btnMenu'), menu = document.getElementById('toolMenu');   // menu thả xuống: các nút ít dùng
+  function setMenu(open){ menu.hidden = !open; menuBtn.setAttribute('aria-expanded', String(open)); }
+  menuBtn.addEventListener('click', function(e){ e.stopPropagation(); setMenu(menu.hidden); });
+  addEventListener('pointerdown', function(e){ if (!menu.hidden && !menu.contains(e.target) && e.target !== menuBtn && !menuBtn.contains(e.target)) setMenu(false); }, true);
+  addEventListener('keydown', function(e){ if (e.key === 'Escape' && !menu.hidden){ setMenu(false); menuBtn.focus(); } });
+  document.getElementById('btnHome').addEventListener('click', function(){ setMenu(false); });
+  document.getElementById('btnLocate').addEventListener('click', toggleLocate); document.getElementById('locClose').addEventListener('click', function(){ locInfo.hidden = true; });
   document.getElementById('compass').addEventListener('click', function(){ var s = sphOf(); flyTo(controls.target.clone(), s.r, s.phi, 0, 900); });
+  // nút xoay 45° và chuyển 2D (nhìn thẳng xuống) / 3D (nhìn nghiêng) cho ai khó dùng cử chỉ
+  function turn(d){ if (tween) return; var s = sphOf(); setSpin(false); flyTo(controls.target.clone(), s.r, s.phi, s.th + d, 450); }
+  document.getElementById('rotL').addEventListener('click', function(){ turn(-Math.PI / 4); });
+  document.getElementById('rotR').addEventListener('click', function(){ turn(Math.PI / 4); });
+  var tiltBtn = document.getElementById('tilt');
+  function syncTilt(){ var flat = sphOf().phi < 0.3; tiltBtn.textContent = flat ? '3D' : '2D'; tiltBtn.setAttribute('aria-label', flat ? 'Nhìn nghiêng (3D)' : 'Nhìn thẳng từ trên xuống (2D)'); }
+  tiltBtn.addEventListener('click', function(){ if (tween) return; var s = sphOf(), flat = s.phi < 0.3; setSpin(false); flyTo(controls.target.clone(), s.r, flat ? (PLAY.on ? 1.1 : HOME_PHI) : controls.minPolarAngle, s.th, 600); setTimeout(syncTilt, 650); });
+  controls.addEventListener('end', syncTilt); syncTilt();
+  addEventListener('keydown', function(e){ if (PLAY.on || e.metaKey || e.ctrlKey || e.altKey || (e.target.closest && e.target.closest('input,textarea'))) return;   // Q/E xoay, T đổi 2D/3D
+    if (e.key === 'q' || e.key === 'Q') turn(-Math.PI / 4); else if (e.key === 'e' || e.key === 'E') turn(Math.PI / 4); else if (e.key === 't' || e.key === 'T') tiltBtn.click(); });
   setTimeout(hideHint, 10000);
   LM.forEach(function(L){ var b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.setAttribute('aria-pressed', 'false'); b.innerHTML = '<i></i>'; b.appendChild(document.createTextNode(L.name));
     b.addEventListener('click', function(){ if (current === L.i) closeCard(); else select(L.i); }); rail.appendChild(b); chips.push(b); });
@@ -258,6 +290,44 @@ function updateAnim(dt, ts){
 }
 
 var clock = new THREE.Clock();
+/* ---------- định vị: "tôi đang ở đâu" (Geolocation, cần HTTPS; trong Claude artifact thường bị chặn) ---------- */
+var locBtn = document.getElementById('btnLocate'), locInfo = document.getElementById('locInfo'), locText = document.getElementById('locText');
+var LOC = { watch:null, marker:null, acc:null, x:0, z:0, first:true };
+function locMsg(html){ locText.innerHTML = html; locInfo.hidden = false; hideHint(); }
+function esc(t){ return String(t).replace(/[&<>"]/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]; }); }
+// tên đường gần nhất (OSM, trong ~100 m) và địa danh gần nhất
+function whereIs(x, z){ var road = null, rd = 1e9; if (OSM) OSM.roads.forEach(function(R){ if (!R.name) return; var Q = R.pts;
+    for (var i = 0; i < Q.length - 1; i++){ var d = segD2(x, z, Q[i][0], Q[i][1], Q[i + 1][0], Q[i + 1][1]); if (d < rd){ rd = d; road = R.name; } } });
+  var lm = null, ld = 1e9; LM.forEach(function(L){ var p = LMP[L.id]; if (!p) return; var d = Math.hypot(p[0] - x, p[1] - z); if (d < ld){ ld = d; lm = L; } });
+  return { road:Math.sqrt(rd) < 2 ? road : null, lm:lm, lmM:Math.round(ld * 50) }; }
+function locMarker(){ var g = new THREE.Group(), dot = new THREE.Mesh(new THREE.CircleGeometry(1, 32), new THREE.MeshBasicMaterial({ color:0x2f7cf6, depthTest:false, transparent:true })),
+    rim = new THREE.Mesh(new THREE.RingGeometry(1, 1.35, 32), new THREE.MeshBasicMaterial({ color:0xffffff, depthTest:false, transparent:true })),
+    pulse = new THREE.Mesh(new THREE.RingGeometry(1, 1.25, 40), new THREE.MeshBasicMaterial({ color:0x2f7cf6, depthTest:false, transparent:true, opacity:0.5 }));
+  [dot, rim, pulse].forEach(function(m, i){ m.rotation.x = -Math.PI / 2; m.renderOrder = 990 + i; g.add(m); }); g.userData.pulse = pulse;
+  LOC.acc = new THREE.Mesh(new THREE.CircleGeometry(1, 48), new THREE.MeshBasicMaterial({ color:0x2f7cf6, transparent:true, opacity:0.14, depthWrite:false })); LOC.acc.rotation.x = -Math.PI / 2;
+  scene.add(LOC.acc); scene.add(g); return g; }
+function onPos(pos){ var lat = pos.coords.latitude, lon = pos.coords.longitude, p = P(lat, lon), x = p[0], z = p[1], accM = Math.round(pos.coords.accuracy || 0);
+  if (!inBoard(x, z, 0)){ var km = Math.hypot(x - homeTarget.x, z - homeTarget.z) * 0.05;
+    locMsg('<b>Bạn đang ở ngoài bản đồ</b>' + dms(lat, 'B') + ' · ' + dms(lon, 'Đ') + '<br><small>Cách trung tâm Nha Trang khoảng ' + (km < 100 ? km.toFixed(1) : Math.round(km)) + ' km</small>');
+    if (LOC.marker) LOC.marker.visible = LOC.acc.visible = false; return; }
+  if (!LOC.marker) LOC.marker = locMarker(); LOC.x = x; LOC.z = z; var y = Math.max(G.hAt(x, z), 0) + 0.06;
+  LOC.marker.position.set(x, y, z); LOC.acc.position.set(x, y - 0.02, z); LOC.acc.scale.setScalar(Math.max(accM / 50, 0.05)); LOC.marker.visible = LOC.acc.visible = true;
+  var w = whereIs(x, z), html = '<b>' + (w.road ? esc(/^(Đường|Hẻm|Kiệt|Ngõ|Cầu|Quốc lộ|Tỉnh lộ|Đại lộ)/i.test(w.road) ? w.road : 'Đường ' + w.road) : 'Bạn đang ở đây') + '</b>';
+  if (w.lm) html += 'Cách ' + esc(w.lm.name) + ' ' + (w.lmM >= 1000 ? (w.lmM / 1000).toFixed(1) + ' km' : w.lmM + ' m') + '<br>';
+  html += '<small>' + dms(lat, 'B') + ' · ' + dms(lon, 'Đ') + (accM ? ' · sai số ~' + accM + ' m' : '') + '</small>'; locMsg(html);
+  if (LOC.first){ LOC.first = false; closeCard(); setSpin(false); flyTo(new THREE.Vector3(x, y, z), 14, 0.75, null, 1500); } }
+function onPosErr(e){ var t = e && e.code === 1 ? 'Bạn chưa cho phép trang dùng vị trí. Bật quyền Vị trí cho trình duyệt (Cài đặt › Safari › Vị trí) rồi bấm lại.'
+    : (e && e.code === 3 ? 'Lấy vị trí quá lâu, thử lại ở chỗ thoáng hơn.' : 'Không lấy được vị trí trên thiết bị này.');
+  locMsg('<b>Không định vị được</b><small>' + t + '</small>'); stopLocate(); }
+function stopLocate(){ if (LOC.watch != null && navigator.geolocation) navigator.geolocation.clearWatch(LOC.watch); LOC.watch = null; locBtn.setAttribute('aria-pressed', 'false'); locBtn.classList.remove('on');
+  if (LOC.marker) LOC.marker.visible = LOC.acc.visible = false; }
+function toggleLocate(){ if (LOC.watch != null){ stopLocate(); locInfo.hidden = true; return; }
+  if (!navigator.geolocation || !window.isSecureContext){ locMsg('<b>Không định vị được</b><small>Trình duyệt hoặc trang này không cho dùng vị trí (cần mở trang qua HTTPS).</small>'); return; }
+  LOC.first = true; locBtn.setAttribute('aria-pressed', 'true'); locBtn.classList.add('on'); locMsg('<b>Đang tìm vị trí của bạn…</b>');
+  LOC.watch = navigator.geolocation.watchPosition(onPos, onPosErr, { enableHighAccuracy:true, timeout:15000, maximumAge:5000 }); }
+function updateLocate(dist, ts){ if (!LOC.marker || !LOC.marker.visible) return; var s = Math.max(0.12, dist * 0.011); LOC.marker.scale.setScalar(s);
+  var k = (ts * 0.8) % 1, pm = LOC.marker.userData.pulse; pm.scale.setScalar(1 + k * 1.8); pm.material.opacity = 0.55 * (1 - k); }
+
 function frame(now){
   requestAnimationFrame(frame);
   var rawDt = clock.getDelta(), dt = Math.min(rawDt, 0.05), ts = clock.elapsedTime * (reduceMotion ? 0.3 : 1); frameN++;
@@ -273,7 +343,7 @@ function frame(now){
   updateShadow(dist);
   updateDetail(PLAY.on && PL ? PL.x : controls.target.x, PLAY.on && PL ? PL.z : controls.target.z, PLAY.on || dist < 55);
   renderFrame(dist, dt);
-  updateWeather(dt, ts, dist); updateLabels(dist); updateHud(dist); updateAudio(dt, dist); governor(rawDt);
+  updateWeather(dt, ts, dist); updateLabels(dist); updateHud(dist); updateAudio(dt, dist); updateLocate(dist, ts); governor(rawDt);
 }
 
 /* ---------- bộ điều tốc: FPS thấp kéo dài thì hạ chất lượng từng bậc ---------- */
@@ -315,7 +385,7 @@ async function build(){
   setupLM(); setupUI(); setupPlay();
   initPost(); initWeather(); todTarget = tod = realTod(); applyTod(tod); syncTimeBtn();
   computeHome(); setCam(homeTarget, homeDist, HOME_PHI, HOME_TH); controls.update(); setSpin(!reduceMotion);
-  window.__nt = { PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return keys; }, G:G, B:B, T:T, ROADS_S:ROADS_S, RAIL_S:RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:controls, setCam:setCam, audio:AU, gov:GOV, lite:LITE, wx:WX, sunPos:sunPos, lmp:LMP, post:POST };
+  window.__nt = { PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return keys; }, G:G, B:B, T:T, ROADS_S:ROADS_S, RAIL_S:RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:controls, setCam:setCam, audio:AU, gov:GOV, lite:LITE, wx:WX, sunPos:sunPos, lmp:LMP, post:POST, scene:scene };
   ready = true; loader.hidden = true; requestAnimationFrame(frame);
 }
 build().catch(function(e){ console.error(e); fail('Không dựng được bản đồ: ' + (e && e.message ? e.message : e)); });

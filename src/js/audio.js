@@ -21,6 +21,7 @@ function startAudio(){
   if (AU.ctx){ if (AU.ctx.state === 'suspended') AU.ctx.resume(); return; }
   var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
   var ctx = AU.ctx = new AC(), L = AU.layers = {};
+  ctx.onstatechange = function(){ if (ctx.state !== 'running' && AU.want) armAudio(); };   // iOS: 'interrupted' sau cuộc gọi, khoá màn hình
   var comp = ctx.createDynamicsCompressor(); comp.threshold.value = -18; comp.ratio.value = 4; comp.connect(ctx.destination);
   // giảm dải cao cho đỡ rè (các lớp nền đều làm từ nhiễu)
   var shelf = filt('highshelf', 5000); shelf.gain.value = -12; shelf.connect(comp);
@@ -56,8 +57,15 @@ function setSound(on){ AU.want = on; try { localStorage.setItem('nt-sound', on ?
 function syncSoundBtn(){ var b = document.getElementById('btnSound'); if (!b) return; var on = AU.want; b.setAttribute('aria-pressed', String(on)); b.setAttribute('aria-label', on ? 'Tắt âm thanh' : 'Bật âm thanh');
   document.getElementById('sndOn').style.display = on ? '' : 'none'; document.getElementById('sndOff').style.display = on ? 'none' : ''; }
 // Trình duyệt chỉ cho phát âm thanh sau thao tác đầu tiên của người dùng.
-function armAudio(){ function go(){ removeEventListener('pointerdown', go, true); removeEventListener('keydown', go, true); if (AU.want){ startAudio(); AU.on = !!AU.ctx; } }
-  addEventListener('pointerdown', go, true); addEventListener('keydown', go, true); }
+// Safari iOS chỉ mở khoá âm thanh ở touchend / click (không phải pointerdown khi bắt đầu kéo bản đồ), nên nghe mọi loại thao tác,
+// phát một mẫu im lặng để mở khoá, và chỉ gỡ nghe khi AudioContext đã thật sự chạy. Bị hệ thống ngắt (cuộc gọi…) thì nghe lại.
+var AU_EV = ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'];
+function armAudio(){ function go(){ if (!AU.want) return; startAudio(); AU.on = !!AU.ctx; if (!AU.ctx) return;
+    try { var b = AU.ctx.createBufferSource(); b.buffer = AU.ctx.createBuffer(1, 1, 22050); b.connect(AU.ctx.destination); b.start(0); } catch (e){}
+    if (AU.ctx.state === 'running') AU_EV.forEach(function(t){ removeEventListener(t, go, true); });
+    else if (AU.ctx.resume) AU.ctx.resume().then(function(){ if (AU.ctx.state === 'running') AU_EV.forEach(function(t){ removeEventListener(t, go, true); }); }, function(){}); }
+  AU_EV.forEach(function(t){ addEventListener(t, go, true); });
+  if (!AU.armed){ AU.armed = true; document.addEventListener('visibilitychange', function(){ if (!document.hidden && AU.ctx && AU.ctx.state !== 'running') armAudio(); }); } }
 
 /* ---------- âm thanh ngắn ---------- */
 function env(g, t, a, peak, d){ g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + d); }

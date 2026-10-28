@@ -7,7 +7,8 @@
     "build": "node build.js",
     "watch": "node build.js --watch",
     "serve": "npx --yes http-server dist -p 8080 -c-1",
-    "test": "node build.js && node tests/smoke.js"
+    "test": "node build.js && node tests/map-check.js && node tests/smoke.js",
+    "check:map": "node tests/map-check.js && node tools/check-sizes.js"
   },
   "devDependencies": {
     "geotiff": "^2.1.3",
