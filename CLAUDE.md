@@ -9,6 +9,7 @@ Bản đồ 3D phong cách hoạt hình của vịnh Nha Trang, chạy trên web
 - `npm run serve`: phục vụ `dist/` ở http://localhost:8080. Cũng có thể mở thẳng `dist/index.html`.
 - `node tools/convert-models.js`: chuyển các GLB trong `assets/models/` (theo danh sách `LIST` trong file) thành `src/js/models.js`. Chạy lại khi thêm/bớt mô hình; `models.js` là file sinh ra, đừng sửa tay.
 - `node tools/fetch-terrain.js [--preview]`: tải Copernicus DEM GLO-30, AWS Terrain Tiles và ESA WorldCover vào `.cache/` (bỏ qua khi commit, cần `curl` và `npm i` để có `geotiff`), rút gọn thành `src/js/terrain-data.js` (độ cao 100 m, lớp phủ 50 m nén RLE). `--preview` ghi `.cache/terrain-preview.png` so độ cao thật với đường bờ ước lượng.
+- `blender --background --factory-startup --python tools/blender/<tên>.py -- assets/models/blender/<tên>.glb`: dựng lại mô hình làm bằng Blender (`ponagar`, `chodam`, `cathedral`, `tramhuong`, `buddha`, `station`; hàm dùng chung trong `kit.py`), rồi chạy `node tools/convert-models.js`. Đã thử với Blender 4.2 LTS.
 - `node tools/pack-character.js`: đóng gói nhân vật chính (GLB có xương, chỉ giữ vài hoạt ảnh, nhúng texture) thành `src/js/character.js`.
 - `node tools/render-crowd.js`: vẽ 7 nhân vật Kenney thành tấm sprite đám đông (8 hướng × 4 khung, WebP) → `src/js/crowd-sheet.js`. Cần Playwright; không có mạng thì đặt `THREE_DIR` trỏ tới thư mục chứa `three.min.js` và `GLTFLoader.js` bản r147.
 - `npm test`: build rồi chạy `tests/smoke.js`. Cần `npm i` trước để có Playwright, và `npx playwright install chromium` nếu máy chưa có Chromium.
@@ -62,6 +63,7 @@ Luôn chạy `npm test` sau khi sửa. Smoke test chạy 3 cấu hình (máy tí
 - Xe máy vẫn tự dựng (Car Kit không có xe máy). Thuyền thúng, làng bè vẫn tự dựng.
 - Nhân vật chính: `loadKenneyChar()` (player.js) nạp GLB bất đồng bộ, gắn vào `PL.ch.root` và ẩn nhân vật khối cũ; `animKenney()` chọn hoạt ảnh idle/walk/sprint/jump/fall/drive theo trạng thái. Không nạp được thì nhân vật khối cũ vẫn chạy.
 - Đám đông: hàng 0, 2, 3, 5, 6, 8, 9 của tấm sprite được chép đè bằng nhân vật Kenney khi ảnh giải mã xong; áo dài, nón lá, gánh hàng, người bơi vẫn vẽ tay trong `drawPerson()`.
+- Mô hình tự dựng bằng Blender: script trong `tools/blender/` (màu theo vật liệu, không texture; `convert-models.js` đổi `baseColorFactor` tuyến tính về sRGB). Dựng theo **đơn vị mô hình của hàm `buildXxx()` cũ** (Blender X đông, Y bắc, Z lên) rồi đặt bằng `kitNative(id)`, nên `place()` và tỷ lệ cũ giữ nguyên. Hiện dùng cho Tháp Bà Ponagar, Chợ Đầm, Nhà thờ Núi, tháp Trầm Hương (vật liệu phát sáng ban đêm `towerGlowVC`), tượng Phật Long Sơn, Ga Nha Trang (mỗi cái ~800–2.300 tam giác). Dựng theo ảnh chụp thật (hình dáng, màu); `convert-models.js` không áp mặt nạ mái cho thư mục `blender/`.
 - Mỗi mô hình là một lần vẽ cho mỗi chunk của `instChunks`; muốn thêm nhiều mô hình thì để ý số draw call và số tam giác (nhà Suburban ~800–1.300 tam giác).
 
 ## Quy ước và mẹo
