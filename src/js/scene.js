@@ -223,14 +223,22 @@ function sampleRoad(pts, w, rail){ var s = resample(pts, 0.5), raw = [];
   out.forEach(function(o, i){ var sum = 0, n = 0; for (var k = -2; k <= 2; k++){ var q = out[i + k]; if (q){ sum += q.y0; n++; } } o.y = o.br ? Math.max(0.66, sum / n) : sum / n; });
   for (i = 0; i < out.length; i++){ var a = out[Math.max(0, i - 1)], b = out[Math.min(out.length - 1, i + 1)], dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1; out[i].fx = dx / l; out[i].fz = dz / l; }
   return { pts:out, w:w, rail:!!rail, L:(out.length - 1) * 0.5 }; }
+// Đường lớn từ OSM (tới cấp tertiary) thành ROADS_S: xe chạy, đèn, cây ven đường, mặt cầu. Chỉ đường có thẻ bridge mới
+// được bắc cầu qua nước; đường khác đi qua chỗ nước (do bờ, sông ước lượng lệch) thì cắt bỏ đoạn đó.
+// Đường nhỏ (OSM_MINOR) chỉ vẽ lên mặt đất, chừa chỗ cho nhà và làm vỉa hè cho người đi bộ.
+var OSM_MINOR = [];
+function osmMajorRoads(){ var out = [];
+  OSM.roads.forEach(function(Rd){ if (Rd.c > 4){ OSM_MINOR.push(Rd); return; }
+    var S = sampleRoad(Rd.pts, Rd.w); if (S.pts.length < 2) return; S.name = Rd.name; S.cls = Rd.c;
+    if (Rd.bridge){ out.push(S); return; }
+    var run = []; S.pts.concat([null]).forEach(function(p){ if (p && !p.br) run.push(p); else { if (run.length > 1) out.push({ pts:run, w:S.w, rail:false, L:(run.length - 1) * 0.5, name:Rd.name, cls:Rd.c }); run = []; } }); });
+  return out; }
 function roadPoint(R, s, o){ var f = s / 0.5, i = f | 0, n = R.pts.length; if (i > n - 2) i = n - 2; if (i < 0) i = 0; var t = clamp(f - i, 0, 1), a = R.pts[i], b = R.pts[i + 1];
   o.x = a.x + (b.x - a.x) * t; o.y = a.y + (b.y - a.y) * t; o.z = a.z + (b.z - a.z) * t; o.fx = a.fx + (b.fx - a.fx) * t; o.fz = a.fz + (b.fz - a.fz) * t; var l = Math.hypot(o.fx, o.fz) || 1; o.fx /= l; o.fz /= l; return o; }
 
 var JETTIES = [], LMP = {}, RESORT_HOTELS = [[12.2200,109.2428,1.2,0.6,8,0.5],[12.2172,109.2445,1.0,0.55,6,-0.4],[12.2228,109.2452,0.9,0.5,10,0.2]];
 (function(){ LM_DEF.forEach(function(d){ var p = d.ll ? P(d.ll[0], d.ll[1]) : [0, 0]; LMP[d.id] = p; });
-  var zT = P(12.2393, 0)[1]; LMP['tram-huong'] = [coastX(zT) - 1.3, zT];
-  var zA = P(12.2163, 0)[1]; LMP.cableA = [coastX(zA) - 1.25, zA]; LMP.cableB = P(12.2182, 109.2386); LMP.wheel = P(12.2212, 109.2410);
-  LMP.pagoda = P(12.2490, 109.1793); LMP.buddha = P(12.2505, 109.1772);
+  for (var k in LM_EXTRA) LMP[k] = P(LM_EXTRA[k][0], LM_EXTRA[k][1]);
   KEEP = [['ponagar', 2.8], ['cho-dam', 2.0], ['nha-tho', 2.0], ['ga', 2.6], ['yersin', 1.2], ['tram-huong', 2.2], ['vien-hdh', 1.8], ['bao-dai', 2.4], ['cang', 1.6], ['hon-chong', 1.6]].map(function(k){ var p = LMP[k[0]]; return [p[0], p[1], k[1]]; });
   RESORT_HOTELS.forEach(function(h){ var p = P(h[0], h[1]); KEEP.push([p[0], p[1], 1.0]); });
   KEEP.push([LMP.cableA[0], LMP.cableA[1], 1.3], [LMP.cableB[0], LMP.cableB[1], 1.3], [LMP.wheel[0], LMP.wheel[1], 2.4], [LMP.pagoda[0], LMP.pagoda[1], 1.6], [LMP.buddha[0], LMP.buddha[1], 1.8]);
@@ -243,11 +251,16 @@ function drawOverlays(ctx, isMask){
   var zT = LMP['tram-huong'][1], plaza = [[coastX(zT - 1.7) - 2.25, zT - 1.7], [coastX(zT - 1.7) - 0.8, zT - 1.7], [coastX(zT + 1.7) - 0.8, zT + 1.7], [coastX(zT + 1.7) - 2.25, zT + 1.7]];
   if (isMask){ ctx.fillStyle = '#fff'; ctx.strokeStyle = '#fff';
     ROADS_S.concat([RAIL_S]).forEach(function(R){ ctx.lineWidth = R.rail ? 0.8 : R.w + 0.34; landRuns(R.pts).forEach(function(run){ strokeLine(ctx, run); }); });
+    OSM_MINOR.forEach(function(R){ ctx.lineWidth = R.w + 0.1; strokeLine(ctx, R.pts); });
     fillPoly(ctx, plaza); KEEP.forEach(function(k){ ctx.beginPath(); ctx.arc(k[0], k[1], k[2], 0, Math.PI * 2); ctx.fill(); }); return; }
   ctx.strokeStyle = '#9fc46d'; ctx.lineWidth = 1.2; strokeLine(ctx, prom);
   ctx.strokeStyle = '#e9e1cc'; ctx.lineWidth = 0.3; strokeLine(ctx, prom);
   ctx.fillStyle = '#e2dac8'; fillPoly(ctx, plaza);
   ctx.strokeStyle = '#d5ccb7'; ctx.lineWidth = 0.05; for (var q = -1.5; q <= 1.5; q += 0.5){ strokeLine(ctx, [[coastX(zT + q) - 2.2, zT + q], [coastX(zT + q) - 0.85, zT + q]]); }
+  // Đường nhỏ OSM: vỉa hè rồi lòng đường; trong phố có vạch giữa nét đứt
+  OSM_MINOR.forEach(function(R){ ctx.strokeStyle = '#dcd5c6'; ctx.lineWidth = R.w + 0.1; strokeLine(ctx, R.pts); });
+  OSM_MINOR.forEach(function(R){ ctx.strokeStyle = '#96989a'; ctx.lineWidth = R.w; strokeLine(ctx, R.pts); });
+  OSM_MINOR.forEach(function(R){ if (R.c > 6) return; ctx.setLineDash([0.18, 0.22]); ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 0.018; strokeLine(ctx, R.pts); ctx.setLineDash([]); });
   // Đường chính: vỉa hè, bó vỉa, lòng đường, hai vạch biên liền, vạch giữa nét đứt (đường rộng thì chia làn)
   ROADS_S.forEach(function(R){ landRuns(R.pts).forEach(function(run){ ctx.strokeStyle = '#dcd5c6'; ctx.lineWidth = R.w + 0.26; strokeLine(ctx, run); ctx.strokeStyle = '#a59e90'; ctx.lineWidth = R.w + 0.07; strokeLine(ctx, run);
     ctx.strokeStyle = '#86898c'; ctx.lineWidth = R.w; strokeLine(ctx, run); ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = R.w - 0.07; strokeLine(ctx, run); ctx.strokeStyle = '#86898c'; ctx.lineWidth = R.w - 0.11; strokeLine(ctx, run);
@@ -583,7 +596,12 @@ function buildLamps(bridgeLights){
   var pos = bridgeLights.slice();
   ROADS_S.forEach(function(R){ R.pts.forEach(function(p, i){ if (i % 2 || p.br) return; var s = (i / 2) % 2 ? 1 : -1, off = R.w / 2 + 0.1; pos.push(p.x - p.fz * s * off, p.y + 0.3, p.z + p.fx * s * off); }); });
   for (var z = P(12.2620, 0)[1]; z <= P(12.2104, 0)[1]; z += 0.9){ var x = coastX(z) - 1.65; pos.push(x, G.hAt(x, z) + 0.28, z); }
-  DIST.forEach(function(D){ if (D.style === 'village') return; var us = [], vs = []; D.poly.forEach(function(p){ var l = toLocal(D, p[0], p[1]); us.push(l[0]); vs.push(l[1]); });
+  // có OSM: đèn dọc đường nhỏ thật (cách ~60 m), không rải theo lưới phố ước lượng
+  if (OSM) OSM_MINOR.forEach(function(R){ if (R.c > 6) return; var acc = 0.6, Q = R.pts;
+    for (var i = 0; i < Q.length - 1; i++){ var dx = Q[i + 1][0] - Q[i][0], dz = Q[i + 1][1] - Q[i][1], L = Math.hypot(dx, dz);
+      while (acc < L){ var t = acc / L, x = Q[i][0] + dx * t - dz / L * (R.w / 2 + 0.06), z = Q[i][1] + dz * t + dx / L * (R.w / 2 + 0.06), y = G.hAt(x, z); if (y > 0.25) pos.push(x, y + 0.24, z); acc += 1.2; }
+      acc -= L; } });
+  if (!OSM) DIST.forEach(function(D){ if (D.style === 'village') return; var us = [], vs = []; D.poly.forEach(function(p){ var l = toLocal(D, p[0], p[1]); us.push(l[0]); vs.push(l[1]); });
     var u0 = Math.min.apply(null, us), u1 = Math.max.apply(null, us), v0 = Math.min.apply(null, vs), v1 = Math.max.apply(null, vs), st = D.style === 'city' ? 1.05 : 1.6;
     for (var i = Math.ceil(u0 / D.su); i * D.su <= u1; i++) for (var v = v0; v <= v1; v += st){ var w = toWorld(D, i * D.su, v); if (G.zoneAt(w[0], w[1]) === 10 + D.i) pos.push(w[0], G.hAt(w[0], w[1]) + 0.24, w[1]); }
     for (var j = Math.ceil(v0 / D.sv); j * D.sv <= v1; j++) for (var u = u0; u <= u1; u += st){ var w2 = toWorld(D, u, j * D.sv); if (G.zoneAt(w2[0], w2[1]) === 10 + D.i) pos.push(w2[0], G.hAt(w2[0], w2[1]) + 0.24, w2[1]); } });

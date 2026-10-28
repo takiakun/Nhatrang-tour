@@ -46,11 +46,14 @@ var COAST = LLs([
   [12.1975,109.2085],[12.1950,109.2080],[12.1925,109.2098],[12.1880,109.2118],[12.1800,109.2135],[12.1700,109.2150],
   [12.1600,109.2172],[12.1500,109.2195],[12.1400,109.2230]
 ]);
+// có dữ liệu OSM: bờ đất liền theo natural=coastline (tools/fetch-osm.js rút mỗi 0,001° vĩ độ một điểm), không thêm dao động
+var COAST_REAL = typeof OSM_DATA !== 'undefined' && OSM_DATA && OSM_DATA.coast && OSM_DATA.coast.length > 20;
+if (COAST_REAL) COAST = LLs(OSM_DATA.coast);
 function coastX(z){ var lo = 0, hi = COAST.length - 1;
   if (z <= COAST[0][1]) return COAST[0][0]; if (z >= COAST[hi][1]) return COAST[hi][0];
   while (hi - lo > 1){ var mid = (lo + hi) >> 1; if (COAST[mid][1] <= z) lo = mid; else hi = mid; }
   var a = COAST[lo], b = COAST[hi], t = (z - a[1]) / (b[1] - a[1]);
-  return a[0] + (b[0] - a[0]) * t + 0.22 * Math.sin(z * 0.37) + 0.12 * Math.sin(z * 1.13 + 1); }
+  return a[0] + (b[0] - a[0]) * t + (COAST_REAL ? 0 : 0.22 * Math.sin(z * 0.37) + 0.12 * Math.sin(z * 1.13 + 1)); }
 
 /* ---------- rivers: lat, lon, width (units) ---------- */
 var RIVERS = [
@@ -77,7 +80,7 @@ var ISLANDS = [
   { id:'hon-mot', seed:3.3, nz:0.5, cliff:true, poly:[[12.1915,109.2370],[12.1906,109.2397],[12.1884,109.2392],[12.1888,109.2364]], peaks:[[12.1899,109.2381,170,45]] },
   { id:'hon-tam', seed:3.7, nz:1.0, poly:[[12.1800,109.2300],[12.1792,109.2380],[12.1762,109.2420],[12.1732,109.2402],[12.1740,109.2322],[12.1765,109.2290]], peaks:[[12.1766,109.2368,480,110]] },
   { id:'hon-mun', seed:4.2, nz:0.8, cliff:true, poly:[[12.1700,109.2995],[12.1695,109.3045],[12.1665,109.3062],[12.1640,109.3030],[12.1650,109.2990],[12.1680,109.2978]], peaks:[[12.1672,109.3022,330,100]] },
-  { id:'hon-do', seed:5.1, nz:0.25, cliff:true, poly:[[12.2706,109.2107],[12.2704,109.2116],[12.2696,109.2117],[12.2694,109.2107],[12.2700,109.2102]], peaks:[[12.2700,109.2110,70,14]] }
+  { id:'hon-do', seed:5.1, nz:0.25, cliff:true, poly:[[12.2672,109.2082],[12.2670,109.2091],[12.2662,109.2092],[12.2660,109.2082],[12.2666,109.2077]], peaks:[[12.2666,109.2085,70,14]] }
 ].map(function(d){ var poly = LLs(d.poly); return { id:d.id, seed:d.seed, nz:d.nz, cliff:!!d.cliff, poly:poly, peaks:PK(d.peaks), ridges:d.ridges ? prepRidges(d.ridges) : null, box:bboxOf(poly, 18) }; });
 function islandSD(x, z, I){ var e = polyEdgeDist(x, z, I.poly), s = inPoly(x, z, I.poly) ? e : -e; return s + (fbm(x * 0.11 + I.seed * 7, z * 0.11 - I.seed * 3) - 0.5) * I.nz; }
 function islandH(x, z, I){
@@ -104,7 +107,8 @@ var RIDGES = prepRidges([
   [[12.1520,109.1760,1300,320],[12.1655,109.2000,1000,360]],
   [[12.2300,109.1500,900,120],[12.2120,109.1575,950,160],[12.2010,109.1540,900,180]]
 ]);
-var HILLS = PK([[12.2657,109.1953,150,16],[12.2505,109.1772,300,55],[12.2465,109.1882,80,12],[12.2030,109.2138,170,42],[12.2738,109.2075,140,14]]);
+// đồi nhỏ có địa danh, tâm theo OSM: Tháp Bà (đồi Cù Lao), đồi Trại Thủy sau chùa Long Sơn, Nhà thờ Núi, mũi Chụt (Lầu Bảo Đại), Hòn Chồng
+var HILLS = PK([[12.2654,109.1952,150,16],[12.2522,109.1808,260,50],[12.2467,109.1881,80,12],[12.2103,109.2154,170,42],[12.2728,109.2066,140,14]]);
 function ridgeH(x, z, R){ var best = 0, p = R.pts;
   for (var i = 0; i < p.length - 1; i++){ var a = p[i], b = p[i + 1], vx = b[0] - a[0], vz = b[1] - a[1], l = vx * vx + vz * vz, t = ((x - a[0]) * vx + (z - a[1]) * vz) / l; t = t < 0 ? 0 : (t > 1 ? 1 : t);
     var dx = x - a[0] - vx * t, dz = z - a[1] - vz * t, w = a[2] + (b[2] - a[2]) * t, hh = a[3] + (b[3] - a[3]) * t, q = (dx * dx + dz * dz) / (w * w);
@@ -279,13 +283,13 @@ function groundColor(x, z, hh, nn, zn, sl, o, lc){
     var du = Math.min(fu, D.su - fu), dv = Math.min(fv, D.sv - fv), hw = D.sw * 0.5;
     if (D.style === 'city' || D.style === 'suburb'){
       // Đường phố: lòng đường nhựa, vạch giữa nét đứt, vạch qua đường ở đầu giao lộ, vỉa hè có bó vỉa.
-      if (du < hw || dv < hw){ setc(PAL.street, o);
+      if (!OSM && (du < hw || dv < hw)){ setc(PAL.street, o);
         if (du < hw && dv < hw) return;
         var ac = du < hw ? du : dv, al = du < hw ? fv : fu, xd = du < hw ? dv : du;
         if (xd < hw + 0.07){ if (((du < hw ? u : v) * 22 & 1) === 0 && ac < hw - 0.015) setc(PAL.mark, o); return; }
         if (ac < 0.014 && (al * 6 & 1) === 0) setc(PAL.mark, o);
         return; }
-      if (du < hw + 0.034 || dv < hw + 0.034){ setc((du < hw + 0.008 || dv < hw + 0.008) ? PAL.curb : PAL.walk, o); return; }
+      if (!OSM && (du < hw + 0.034 || dv < hw + 0.034)){ setc((du < hw + 0.008 || dv < hw + 0.008) ? PAL.curb : PAL.walk, o); return; }
       var c = URB[(ih(Math.floor(u / 0.3) + D.i * 7777, Math.floor(v / 0.3)) * URB.length) | 0];
       if (D.style === 'suburb') mixc(o, c, 0.5, o); else mixc(PAL.urban, c, 0.75, o);
     } else if (D.style === 'village'){
@@ -338,6 +342,7 @@ var TOWER_C = ['#ffffff','#e7f1f6','#f6efe3','#dcebe8','#cfe1ec','#f3f3f3','#e9e
 var TUBE_F = [2,3,4,5,6], TOWER_F = [8,12,18,26,36,46], MID_F = [3,5,7,9];
 function nearestIdx(arr, v){ var b = 0; for (var i = 1; i < arr.length; i++) if (Math.abs(arr[i] - v) < Math.abs(arr[b] - v)) b = i; return b; }
 function genBuildings(G, MK, dens, extraTowers){
+  if (OSM) return genBuildingsOSM(G, MK, dens, extraTowers);
   var out = { tubes:[], towers:[], mids:[], villas:[], tanks:[], yard:[] }, rb = mulberry32(77);
   function R(a, b){ return a + (b - a) * rb(); }
   function ok(D, x, z, hw, hd, ang){
@@ -408,6 +413,94 @@ function genBuildings(G, MK, dens, extraTowers){
   return out;
 }
 
+/* ---------- OpenStreetMap (osm-data.js, sinh bởi tools/fetch-osm.js; © OpenStreetMap contributors, ODbL) ---------- */
+// OSM.roads: { c: loại (chỉ số trong OSM_DATA.classes), l: số làn, name, bridge, w: bề rộng (đơn vị), pts:[[x,z]…] }
+// OSM.builds: { lv: số tầng (0 = không rõ), k: 0 nhà ở / 1 thương mại / 2 khác, pts: đa giác chân đế }
+var ROAD_W = [0.56, 0.56, 0.5, 0.42, 0.34, 0.24, 0.2, 0.16, 0.12];   // motorway … service(alley), đã phóng to như đường cũ
+var OSM = (function(){ if (typeof OSM_DATA === 'undefined') return null; var D = OSM_DATA;
+  function i16(s){ var b = atob(s), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return new Int16Array(u.buffer); }
+  function polys(o, hn, mk){ var hd = i16(o.hd), co = i16(o.co), out = [], h = 0, p = 0;
+    for (var n = 0; n < o.n; n++){ var np = hd[h], meta = []; for (var k = 1; k <= hn; k++) meta.push(hd[h + k]); h += hn + 1;
+      var pts = []; for (k = 0; k < np; k++){ pts.push([co[p] / D.q, co[p + 1] / D.q]); p += 2; } out.push(mk(meta, pts)); }
+    return out; }
+  var roads = polys(D.roads, 4, function(m, pts){ return { c:m[0], l:m[1], name:m[2] >= 0 ? D.names[m[2]] : '', bridge:!!m[3], w:Math.max(ROAD_W[m[0]], m[1] * 0.09), pts:pts }; });
+  var builds = polys(D.builds, 2, function(m, pts){ return { lv:m[0], k:m[1], pts:pts }; });
+  return { roads:roads, builds:builds, classes:D.classes }; })();
+
+// hình chữ nhật bao nhỏ nhất (thử hướng của từng cạnh): tâm, rộng (theo hướng ang), sâu
+function obbOf(pts){ var best = null;
+  for (var i = 0; i < pts.length; i++){ var a = pts[i], b = pts[(i + 1) % pts.length], ang = Math.atan2(b[1] - a[1], b[0] - a[0]), c = Math.cos(ang), s = Math.sin(ang), u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
+    for (var k = 0; k < pts.length; k++){ var u = pts[k][0] * c + pts[k][1] * s, v = -pts[k][0] * s + pts[k][1] * c; if (u < u0) u0 = u; if (u > u1) u1 = u; if (v < v0) v0 = v; if (v > v1) v1 = v; }
+    var area = (u1 - u0) * (v1 - v0); if (!best || area < best.area){ var cu = (u0 + u1) / 2, cv = (v0 + v1) / 2; best = { area:area, ang:ang, w:u1 - u0, d:v1 - v0, x:cu * c - cv * s, z:cu * s + cv * c }; } }
+  return best; }
+
+// Sinh nhà khi có OSM: (1) chân đế thật từ OSM; (2) chỗ còn trống thì xếp nhà dọc hai bên đường thật, quay mặt ra phố;
+// (3) lõi khối phố thì thêm chung cư thấp tầng / sân vườn. Kiểu nhà theo khu (DIST: city/suburb/village/resort) như cũ.
+function genBuildingsOSM(G, MK, dens, extraTowers){
+  var out = { tubes:[], towers:[], mids:[], villas:[], tanks:[], yard:[] }, rb = mulberry32(77), occ = new Map();
+  function R(a, b){ return a + (b - a) * rb(); }
+  function key(x, z){ return (Math.floor(x * 2) + 2000) * 4000 + Math.floor(z * 2) + 2000; }
+  function free(x, z, r){ for (var i = -1; i <= 1; i++) for (var j = -1; j <= 1; j++){ var a = occ.get(key(x + i * 0.5, z + j * 0.5)); if (a) for (var k = 0; k < a.length; k++){ var q = a[k]; if (Math.hypot(q[0] - x, q[1] - z) < q[2] + r) return false; } } return true; }
+  function mark(x, z, r){ var k = key(x, z), a = occ.get(k); if (!a){ a = []; occ.set(k, a); } a.push([x, z, r]); }
+  // mặt bằng: trên đất, không phải bãi biển sát bờ, không đè đường / địa danh (MK), không quá dốc; trả về độ cao đặt nhà
+  // back ≠ 0: lô mặt tiền, mặt sau theo hướng pháp tuyến back. Mặt nạ MK (ô 12,5 m, khử răng cưa) phủ lấn mép đường nhỏ,
+  // nên lô mặt tiền chỉ hỏi MK ở nửa sau (địa danh, sông, đường lớn); khoảng cách tới đường nhỏ khác kiểm bằng ROCC.
+  function ok(x, z, hw, hd, ang, needDist, back){
+    if (!inBoard(x, z, 2)) return false; var zn = G.zoneAt(x, z); if (needDist && zn < 10) return false;
+    var cd = coastX(z) - x; if (cd > 0 && cd < 2.6) return false;
+    var c = Math.cos(ang), s = Math.sin(ang), lo = 1e9, hi = -1e9;
+    if (back){ var bx = x - s * back * hd * 0.5, bz = z + c * back * hd * 0.5; if (MK(bx, bz)) return false; } else if (MK(x, z)) return false;
+    for (var k = 0; k < 4; k++){ var sx = (k & 1 ? 1 : -1) * hw, sz = (k & 2 ? 1 : -1) * hd, px = x + sx * c - sz * s, pz = z + sx * s + sz * c, hh = G.hAt(px, pz);
+      if (hh < lo) lo = hh; if (hh > hi) hi = hh;
+      if (back){ var rf = rfree(px, pz, 0); if (!rf || (sz * back > 0 && rf === 1 && MK(px, pz))) return false; } else if (MK(px, pz)) return false; }
+    if (back){ for (var t = -0.3; t <= 0.31; t += 0.3) if (!rfree(x - s * t * hd * 2, z + c * t * hd * 2, 0)) return false; }
+    if (hi - lo > 0.3 || lo < 0.3 || hi > 2.6) return false; return lo - 0.02; }
+  // chiếm chỗ của đường thật (tâm đường, bán kính = nửa bề rộng): rfree trả 0 nếu đè đường, 1 nếu trống, 2 nếu trống mà gần đường (MK đỏ do khử răng cưa)
+  var rocc = new Map();
+  OSM.roads.forEach(function(Rd){ var hw = Rd.w / 2 + 0.02, Q = Rd.pts; for (var i = 0; i < Q.length - 1; i++){ var dx = Q[i + 1][0] - Q[i][0], dz = Q[i + 1][1] - Q[i][1], L = Math.hypot(dx, dz), n = Math.max(1, Math.ceil(L / 0.1));
+    for (var j = 0; j <= n; j++){ var x = Q[i][0] + dx * j / n, z = Q[i][1] + dz * j / n, k = key(x, z), a = rocc.get(k); if (!a){ a = []; rocc.set(k, a); } a.push([x, z, hw]); } } });
+  function rfree(x, z, r){ var near = false; for (var i = -1; i <= 1; i++) for (var j = -1; j <= 1; j++){ var a = rocc.get(key(x + i * 0.5, z + j * 0.5)); if (a) for (var k = 0; k < a.length; k++){ var q = a[k], d = Math.hypot(q[0] - x, q[1] - z) - q[2] - r; if (d < 0) return 0; if (d < 0.45) near = true; } } return near ? 2 : 1; }
+  function styleAt(x, z){ var zn = G.zoneAt(x, z); return zn >= 10 ? DIST[zn - 10] : null; }
+  function addTube(x, z, y, w, d, ang, fl, fc){ var f = TUBE_F[nearestIdx(TUBE_F, fl)];
+    out.tubes.push({ x:x, z:z, y:y, w:w, d:d, h:f * FLOOR, r:-ang, fc:fc, f:f, c:TUBE_C[(rb() * TUBE_C.length) | 0] });
+    if (rb() < 0.45) out.tanks.push({ x:x + (rb() - 0.5) * w * 0.4, z:z + (rb() - 0.5) * d * 0.5, y:y + f * FLOOR, r:-ang }); }
+  function addVilla(x, z, y, w, d, ang, fl, fc, D){ var res = D && D.style === 'resort';
+    out.villas.push({ x:x, z:z, y:y, w:w, d:d, h:fl * FLOOR * 0.95, r:-ang, fc:fc, roof:res || rb() < 0.7, c:res ? '#fbf8f1' : VILLA_C[(rb() * VILLA_C.length) | 0], rc:res ? (rb() < 0.5 ? '#5b4636' : '#2f5d62') : ROOF_C[(rb() * ROOF_C.length) | 0] }); }
+  function addBlock(list, F, C, x, z, y, w, d, ang, fl, pool){ var f = F[nearestIdx(F, fl)]; list.push({ x:x, z:z, y:y, w:w, d:d, h:f * FLOOR, r:-ang, f:f, c:C[(rb() * C.length) | 0], pool:!!pool }); }
+  // (1) chân đế OSM
+  OSM.builds.forEach(function(b){ var o = obbOf(b.pts); if (!o || o.w * o.d < 0.006) return;
+    var w = Math.max(o.w, 0.12), d = Math.max(o.d, 0.12), ang = o.ang; if (w > 3 || d > 3) return;
+    var y = ok(o.x, o.z, w / 2, d / 2, ang, false); if (y === false) return;
+    var D = styleAt(o.x, o.z), st = D ? D.style : 'village', lv = b.lv || (st === 'city' ? 2 + Math.floor(Math.pow(rb(), 1.6) * 5) : 1 + Math.floor(rb() * 2));
+    if (lv >= 8) addBlock(out.towers, TOWER_F, TOWER_C, o.x, o.z, y, w, d, ang, lv, rb() < 0.3);
+    else if (w * d > 0.3 && lv >= 3) addBlock(out.mids, MID_F, TOWER_C, o.x, o.z, y, w, d, ang, lv);
+    else if (st === 'city' || Math.min(w, d) < 0.24) addTube(o.x, o.z, y, w, d, ang, lv, rb() < 0.5 ? 1 : -1);
+    else addVilla(o.x, o.z, y, w, d, ang, lv, rb() < 0.5 ? 1 : -1, D);
+    mark(o.x, o.z, Math.min(w, d) * 0.5); });
+  // (2) mặt tiền dọc đường thật (bỏ cao tốc, quốc lộ; chỉ trong các khu dân cư DIST)
+  OSM.roads.forEach(function(Rd){ if (Rd.c <= 1 || Rd.bridge) return; var P2 = Rd.pts;
+    for (var i = 0; i < P2.length - 1; i++){ var ax = P2[i][0], az = P2[i][1], dx = P2[i + 1][0] - ax, dz = P2[i + 1][1] - az, L = Math.hypot(dx, dz); if (L < 0.3) continue;
+      var fx = dx / L, fz = dz / L, nx = -fz, nz = fx, ang = Math.atan2(fz, fx);
+      [1, -1].forEach(function(s){ var u = 0.12;
+        while (u < L - 0.12){ var mx = ax + fx * u + nx * s * 0.6, mz = az + fz * u + nz * s * 0.6, D = styleAt(mx, mz);
+          if (!D){ u += 0.5; continue; }
+          var city = D.style === 'city', lw = city ? R(0.15, 0.26) : R(0.3, 0.5), dep = city ? R(0.36, 0.6) : R(0.3, 0.45); if (u + lw > L - 0.08) break;
+          var off = Rd.w / 2 + 0.07 + dep / 2, cx = ax + fx * (u + lw / 2) + nx * s * off, cz = az + fz * (u + lw / 2) + nz * s * off, r = Math.min(lw, dep) * 0.5;
+          if (rb() < D.dens * dens * (city ? 1.15 : 0.9) && free(cx, cz, r * 0.95)){
+            var y = ok(cx, cz, (lw - 0.014) / 2, dep / 2, ang, true, s);
+            if (y !== false){ if (city || (D.style === 'suburb' && rb() < 0.45)) addTube(cx, cz, y, lw - 0.014, dep, ang, city ? 2 + Math.floor(Math.pow(rb(), 1.6) * 5) : 2 + Math.floor(rb() * 3), -s);
+              else addVilla(cx, cz, y, lw - 0.08, dep, ang, D.style === 'suburb' ? 1 + Math.floor(rb() * 2.4) : 1, -s, D);
+              mark(cx, cz, r); } }
+          u += lw; } }); } });
+  // (3) lõi khối phố: chung cư thấp tầng hoặc sân vườn có cây
+  DIST.forEach(function(D){ if (D.style !== 'city') return; var b = D.box, n = Math.round((b[2] - b[0]) * (b[3] - b[1]) * 0.35 * dens);
+    for (var k = 0; k < n; k++){ var x = R(b[0], b[2]), z = R(b[1], b[3]); if (!inPoly(x, z, D.poly) || !free(x, z, 0.45)) continue;
+      if (rb() < 0.45){ var w = R(0.5, 0.9), d = R(0.45, 0.8), ang = R(0, Math.PI), y = ok(x, z, w / 2, d / 2, ang, true); if (y !== false){ addBlock(out.mids, MID_F, TOWER_C, x, z, y, w, d, ang, R(3, 9)); mark(x, z, Math.min(w, d) / 2); } }
+      else if (!MK(x, z)) out.yard.push({ x:x, z:z }); } });
+  (extraTowers || []).forEach(function(t){ var p = P(t[0], t[1]), y = G.hAt(p[0], p[1]); out.towers.push({ x:p[0], z:p[1], y:y - 0.02, w:t[2], d:t[3], h:t[4] * FLOOR, r:t[5] || 0, f:TOWER_F[nearestIdx(TOWER_F, t[4])], c:'#fbf7ef', pool:false }); });
+  return out;
+}
+
 /* ---------- vegetation ---------- */
 var LC_TREES = { 10:0.85, 20:0.4, 30:0.12, 40:0.05, 50:0.12, 60:0.02, 80:0, 90:0.08, 95:0.9 };
 function genTrees(G, MK, stepSize, dens){
@@ -432,48 +525,51 @@ function genTrees(G, MK, stepSize, dens){
 }
 
 /* ---------- landmarks ---------- */
+// điểm phụ của địa danh (toạ độ OSM; null = không có trong OSM, ước lượng theo ảnh/độ cao): ga cáp treo hai đầu, vòng quay, chùa và tượng Phật Long Sơn
+var LM_EXTRA = { cableA:[12.2034, 109.2176, 'way/71375373#first'], cableB:[12.2150, 109.2391, 'way/71375373#last'], wheel:[12.2219, 109.2429, 'node/7040432885'],
+  pagoda:[12.2513, 109.1805, 'way/196896036'], buddha:[12.2522, 109.1808, null] };
 var LM_DEF = [
   { id:'co-tien', name:'Núi Cô Tiên', cat:'Núi', ll:[12.2865,109.2010], zoom:46, ring:0, top:1.5,
     desc:'Dãy núi phía bắc thành phố. Ba ngọn núi nối nhau, nhìn từ trung tâm giống dáng một nàng tiên nằm ngửa. Đường mòn lên đỉnh là điểm ngắm toàn cảnh vịnh Nha Trang.', facts:['Ba đỉnh núi','Ngắm toàn cảnh vịnh'] },
-  { id:'hon-chong', name:'Hòn Chồng', cat:'Thắng cảnh', ll:[12.2733,109.2081], zoom:9, ring:1.6,
+  { id:'hon-chong', name:'Hòn Chồng', cat:'Thắng cảnh', ll:[12.2728,109.2066], osm:'way/792392852', zoom:9, ring:1.6,
     desc:'Bãi đá granite chồng lên nhau ở mũi biển phía bắc, dưới chân núi Cô Tiên. Một tảng đá có vết lõm như bàn tay khổng lồ, gắn với truyền thuyết về chàng khổng lồ và nàng tiên.', facts:['Đá granite','Ngắm bình minh'] },
-  { id:'hon-do', name:'Hòn Đỏ', cat:'Đảo nhỏ', ll:[12.2700,109.2110], zoom:9, ring:1.8,
+  { id:'hon-do', name:'Hòn Đỏ', cat:'Đảo nhỏ', ll:[12.2666,109.2085], osm:'way/265148348', zoom:9, ring:1.8,
     desc:'Hòn đảo nhỏ ngay trước mũi Hòn Chồng, trên đảo có một ngôi chùa nhỏ. Từ bãi đá Hòn Chồng nhìn ra, đảo nằm giữa biển như một hòn non bộ.', facts:['Ngoài khơi Hòn Chồng','Chùa trên đảo'] },
-  { id:'ponagar', name:'Tháp Bà Ponagar', cat:'Di tích Chăm', ll:[12.2657,109.1953], zoom:9, ring:2.4,
+  { id:'ponagar', name:'Tháp Bà Ponagar', cat:'Di tích Chăm', ll:[12.2654,109.1952], osm:'way/146780347', zoom:9, ring:2.4,
     desc:'Quần thể tháp Chăm cổ trên đồi Cù Lao, bên bờ bắc sông Cái. Tháp thờ Nữ thần Thiên Y A Na, người Chăm gọi là Po Inư Nagar, Mẹ xứ sở.', facts:['Thế kỷ 7–12','Đồi Cù Lao'] },
-  { id:'xom-bong', name:'Cầu Xóm Bóng', cat:'Sông Cái', ll:[12.2638,109.1937], zoom:12, ring:0,
+  { id:'xom-bong', name:'Cầu Xóm Bóng', cat:'Sông Cái', ll:[12.2636,109.1957], osm:'way/1423622837', zoom:12, ring:0,
     desc:'Cây cầu nối trung tâm với phía bắc thành phố, ngay dưới chân Tháp Bà. Gần cửa sông, những chiếc thuyền đánh cá sơn xanh neo đậu san sát.', facts:['Bắc qua sông Cái','Cạnh Tháp Bà'] },
-  { id:'cho-dam', name:'Chợ Đầm', cat:'Chợ', ll:[12.2547,109.1903], zoom:8, ring:1.9,
+  { id:'cho-dam', name:'Chợ Đầm', cat:'Chợ', ll:[12.2553,109.1917], osm:'relation/21159862', zoom:8, ring:1.9,
     desc:'Chợ lớn nhất trung tâm Nha Trang, mái tròn nhiều tầng. Nơi mua hải sản khô, yến sào, nem chả và đặc sản Khánh Hòa.', facts:['Hải sản khô','Yến sào'] },
-  { id:'yersin', name:'Viện Pasteur Nha Trang', cat:'Lịch sử', ll:[12.2512,109.1966], zoom:7, ring:1.2,
+  { id:'yersin', name:'Viện Pasteur Nha Trang', cat:'Lịch sử', ll:[12.2517,109.1962], osm:'way/1193057647', zoom:7, ring:1.2,
     desc:'Viện do bác sĩ Alexandre Yersin lập năm 1895. Bảo tàng Yersin trong khuôn viên viện lưu giữ phòng làm việc, kính hiển vi và thư từ của ông.', facts:['Lập năm 1895','Bảo tàng Yersin'] },
-  { id:'long-son', name:'Chùa Long Sơn', cat:'Tôn giáo', ll:[12.2500,109.1780], zoom:11, ring:2.6,
+  { id:'long-son', name:'Chùa Long Sơn', cat:'Tôn giáo', ll:[12.2513,109.1805], osm:'way/196896036', zoom:11, ring:2.6,
     desc:'Ngôi chùa dưới chân đồi Trại Thủy. Trên đỉnh đồi là tượng Kim Thân Phật Tổ màu trắng cao 24 m, từ đây nhìn bao quát cả thành phố.', facts:['Lập năm 1886','Tượng Phật cao 24 m'] },
-  { id:'ga', name:'Ga Nha Trang', cat:'Đường sắt', ll:[12.2475,109.1849], zoom:8, ring:1.6,
+  { id:'ga', name:'Ga Nha Trang', cat:'Đường sắt', ll:[12.2485,109.1842], osm:'way/232457135', zoom:8, ring:1.6,
     desc:'Nhà ga trên tuyến đường sắt Bắc – Nam, ở rìa tây trung tâm. Đường ray chạy theo hướng bắc – nam, sát chân đồi Long Sơn.', facts:['Đường sắt Bắc – Nam','Gần chùa Long Sơn'] },
-  { id:'nha-tho', name:'Nhà thờ Núi', cat:'Tôn giáo', ll:[12.2465,109.1882], zoom:8, ring:1.8,
+  { id:'nha-tho', name:'Nhà thờ Núi', cat:'Tôn giáo', ll:[12.2467,109.1881], osm:'way/162818208', zoom:8, ring:1.8,
     desc:'Nhà thờ Chánh tòa Kitô Vua, xây bằng đá theo kiến trúc Gothic Pháp, trên một ngọn đồi nhỏ giữa trung tâm. Tháp chuông nhìn từ xa như một ngọn núi đá.', facts:['Xây 1928–1933','Kiến trúc Gothic'] },
-  { id:'tram-huong', name:'Tháp Trầm Hương', cat:'Biểu tượng', ll:null, zoom:9, ring:1.4,
+  { id:'tram-huong', name:'Tháp Trầm Hương', cat:'Biểu tượng', ll:[12.2406,109.1969], osm:'way/232454020', zoom:9, ring:1.4,
     desc:'Tháp hình búp sen ở Quảng trường 2/4, nhìn ra bãi biển Trần Phú. Tên tháp gợi đến trầm hương, đặc sản quý của Khánh Hòa. Tối đến tháp lên đèn.', facts:['Quảng trường 2/4','Hình búp sen'] },
-  { id:'tran-phu', name:'Bãi biển Trần Phú', cat:'Bãi biển', ll:[12.2310,109.2000], zoom:22, ring:0,
+  { id:'tran-phu', name:'Bãi biển Trần Phú', cat:'Bãi biển', ll:[12.2363,109.1979], osm:'way/207742943', zoom:22, ring:0,
     desc:'Bãi cát vàng cong dọc trung tâm, hàng dừa và khách sạn cao tầng nhìn ra vịnh. Sáng sớm là lúc người dân xuống tắm biển đông nhất.', facts:['Dài khoảng 6 km','Hàng dừa, khách sạn'] },
   { id:'cap-treo', name:'Cáp treo Hòn Tre', cat:'Giao thông', ll:null, zoom:40, ring:0,
     desc:'Tuyến cáp treo vượt biển dài khoảng 3,3 km nối đất liền với đảo Hòn Tre. Cabin chạy trên những trụ cao giữa vịnh, nhìn xuống toàn cảnh thành phố.', facts:['Dài ~3,3 km','Vượt biển'] },
   { id:'hon-tre', name:'Đảo Hòn Tre', cat:'Đảo', ll:[12.2270,109.2830], zoom:75, ring:0, focus:[12.2215,109.2720], top:1.6,
     desc:'Đảo lớn nhất vịnh Nha Trang. Mũi phía tây có khu nghỉ dưỡng, công viên giải trí và vòng quay lớn nhìn về thành phố; phía nam là làng chài Bích Đầm.', facts:['Đảo lớn nhất vịnh','Cáp treo hoặc tàu'] },
-  { id:'vien-hdh', name:'Viện Hải dương học', cat:'Khoa học', ll:[12.2085,109.2124], zoom:8, ring:1.5,
+  { id:'vien-hdh', name:'Viện Hải dương học', cat:'Khoa học', ll:[12.2076,109.2147], osm:'way/1158459582', zoom:8, ring:1.5,
     desc:'Viện nghiên cứu biển lâu đời ở Cầu Đá. Bảo tàng của viện trưng bày hàng chục nghìn mẫu sinh vật biển, trong đó có bộ xương cá voi lớn.', facts:['Thành lập 1922','Hơn 20.000 mẫu vật'] },
-  { id:'cang', name:'Cảng Nha Trang', cat:'Cảng biển', ll:[12.2063,109.2172], zoom:12, ring:0,
+  { id:'cang', name:'Cảng Nha Trang', cat:'Cảng biển', ll:[12.2070,109.2168], osm:'node/1403104892', zoom:12, ring:0,
     desc:'Cảng ở mũi Cầu Đá, nơi tàu du lịch quốc tế cập bến và tàu khách đi các đảo trong vịnh xuất phát.', facts:['Mũi Cầu Đá','Tàu đi các đảo'] },
-  { id:'bao-dai', name:'Biệt điện Bảo Đại', cat:'Lịch sử', ll:[12.2030,109.2138], zoom:8, ring:1.8,
+  { id:'bao-dai', name:'Biệt điện Bảo Đại', cat:'Lịch sử', ll:[12.2103,109.2154], osm:'way/272268190', zoom:8, ring:1.8,
     desc:'Quần thể biệt thự kiểu Pháp trên ngọn đồi nhỏ ở Cầu Đá, xây trong thập niên 1920, từng là nơi nghỉ của vua Bảo Đại. Từ đồi nhìn thẳng ra vịnh và đảo Hòn Tre.', facts:['Thập niên 1920','Đồi Cầu Đá'] },
   { id:'cua-be', name:'Cửa Bé', cat:'Cửa sông', ll:[12.1958,109.2078], zoom:18, ring:0,
     desc:'Cửa sông phía nam thành phố, nơi sông Quán Trường đổ ra biển. Bờ nam là làng chài Hòn Rớ với rất nhiều thuyền đánh cá; quanh cửa sông là các đầm nuôi tôm.', facts:['Làng chài Hòn Rớ','Đầm nuôi tôm'] },
-  { id:'hon-mieu', name:'Hòn Miễu', cat:'Đảo', ll:[12.1935,109.2282], zoom:20, ring:0, top:1.2,
+  { id:'hon-mieu', name:'Hòn Miễu', cat:'Đảo', ll:[12.1901,109.2245], osm:'way/816512133', zoom:20, ring:0, top:1.2,
     desc:'Đảo nhỏ gần cảng Cầu Đá, có làng chài Trí Nguyên. Quanh đảo là những làng bè nuôi cá, tôm hùm trên mặt nước.', facts:['Làng chài Trí Nguyên','Làng bè'] },
-  { id:'hon-tam', name:'Hòn Tằm', cat:'Đảo', ll:[12.1766,109.2368], zoom:20, ring:0, top:1.2,
+  { id:'hon-tam', name:'Hòn Tằm', cat:'Đảo', ll:[12.1747,109.2447], osm:'way/147536067', zoom:20, ring:0, top:1.2,
     desc:'Đảo nhỏ phía nam vịnh với bãi cát và khu nghỉ dưỡng, thích hợp tắm biển và chơi thể thao nước.', facts:['Bãi tắm','Thể thao nước'] },
-  { id:'hon-mun', name:'Hòn Mun', cat:'Biển đảo', ll:[12.1672,109.3022], zoom:18, ring:0, top:1.2,
+  { id:'hon-mun', name:'Hòn Mun', cat:'Biển đảo', ll:[12.1667,109.3049], osm:'relation/6726645', zoom:18, ring:0, top:1.2,
     desc:'Khu bảo tồn biển với rạn san hô và đàn cá nhiều màu, điểm lặn ngắm san hô nổi tiếng nhất vịnh Nha Trang.', facts:['Khu bảo tồn biển','Lặn ngắm san hô'] }
 ];
 var GEO_LABELS = [

@@ -12,7 +12,7 @@ var homeTarget = new THREE.Vector3(-14, 0, -4), homeDist = 400, HOME_PHI = 0.86,
 function computeHome(){ var asp = innerWidth / innerHeight, t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
   homeDist = Math.max(BW * 0.98 / (2 * t * asp), BD * 0.8 / (2 * t)); controls.maxDistance = homeDist * 1.35; scene.fog.near = homeDist * 0.95; scene.fog.far = homeDist * 3.2; }
 function setCam(target, r, phi, th){ controls.target.copy(target); camera.position.set(target.x + r * Math.sin(phi) * Math.sin(th), target.y + r * Math.cos(phi), target.z + r * Math.sin(phi) * Math.cos(th)); camera.lookAt(target); }
-addEventListener('resize', function(){ renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); computeHome(); labels.forEach(function(l){ l.w = 0; }); });
+addEventListener('resize', function(){ renderer.setSize(innerWidth, innerHeight); resizePost(); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); computeHome(); labels.forEach(function(l){ l.w = 0; }); });
 
 var ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 function setNdc(e){ var r = renderer.domElement.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, camera); }
@@ -75,9 +75,13 @@ function makeLabels(){
     el.setAttribute('aria-label', L.name); el.addEventListener('click', function(){ select(L.i); }); labelLayer.appendChild(el); labels.push({ el:el, pos:L.anchor, lm:L, kind:'lm', vis:true }); });
   GEO_LABELS.forEach(function(g){ var p = P(g.ll[0], g.ll[1]), el = document.createElement('div'); el.className = 'geo'; el.textContent = g.t; labelLayer.appendChild(el);
     labels.push({ el:el, pos:new THREE.Vector3(p[0], Math.max(G.hAt(p[0], p[1]), 0) + g.y, p[1]), kind:'geo', max:g.max, vis:true }); });
-  ROAD_LABELS.forEach(function(g){ var z = P(g.ll[0], 0)[1], x = g.ll[1] == null ? coastX(z) - g.off : P(g.ll[0], g.ll[1])[0], el = document.createElement('div'); el.className = 'road'; el.textContent = g.t; labelLayer.appendChild(el);
+  roadLabels().forEach(function(g){ var z = P(g.ll[0], 0)[1], x = g.ll[1] == null ? coastX(z) - g.off : P(g.ll[0], g.ll[1])[0], el = document.createElement('div'); el.className = 'road'; el.textContent = g.t; labelLayer.appendChild(el);
     labels.push({ el:el, pos:new THREE.Vector3(x, G.hAt(x, z) + 0.3, z), kind:'road', vis:true }); });
   labels.forEach(function(l){ l.el.style.visibility = 'hidden'; l.vis = false; }); }
+// Nhãn tên đường: có OSM thì lấy tên thật của đường lớn (đặt ở giữa đoạn dài nhất mang tên đó), không thì dùng ROAD_LABELS ước lượng
+function roadLabels(){ if (!OSM) return ROAD_LABELS; var best = {};
+  ROADS_S.forEach(function(R){ if (!R.name || R.cls > 3) return; if (!best[R.name] || R.L > best[R.name].L) best[R.name] = R; });
+  return Object.keys(best).filter(function(n){ return best[n].L > 6; }).map(function(n){ var R = best[n], p = R.pts[R.pts.length >> 1], ll = toLL(p.x, p.z); return { t:/^(Đường|Đại lộ|Quốc lộ|Tỉnh lộ)/.test(n) ? n : 'Đường ' + n, ll:ll }; }); }
 function hits(x0, y0, x1, y1){ for (var i = 0; i < placed.length; i++){ var p = placed[i]; if (x0 < p[2] && x1 > p[0] && y0 < p[3] && y1 > p[1]) return true; } return false; }
 function prio(L){ return (L.lm && L.lm.i === current) ? -1e9 : (L.kind === 'geo' ? 40 : (L.kind === 'road' ? 60 : 0)); }
 function updateLabels(dist){
@@ -268,7 +272,7 @@ function frame(now){
   if (Math.abs(nn - camera.near) > nn * 0.15){ camera.near = nn; camera.updateProjectionMatrix(); }
   updateShadow(dist);
   updateDetail(PLAY.on && PL ? PL.x : controls.target.x, PLAY.on && PL ? PL.z : controls.target.z, PLAY.on || dist < 55);
-  renderer.render(scene, camera);
+  renderFrame(dist, dt);
   updateWeather(dt, ts, dist); updateLabels(dist); updateHud(dist); updateAudio(dt, dist); governor(rawDt);
 }
 
@@ -278,7 +282,7 @@ var GOV = { t:0, n:0, acc:0, level:0, wait:4 };
 function governor(d){ if (document.hidden || d <= 0 || d > 0.5) return; GOV.t += d; if (GOV.t < GOV.wait) return; GOV.acc += d; GOV.n++;
   if (GOV.acc < 2.5) return; var fps = GOV.n / GOV.acc; GOV.acc = 0; GOV.n = 0;
   if (fps >= 38 || GOV.level >= 3) return; GOV.level++; GOV.t = 0; GOV.wait = 3;
-  if (GOV.level === 1){ renderer.setPixelRatio(Math.max(1, renderer.getPixelRatio() * 0.7)); renderer.setSize(innerWidth, innerHeight); }
+  if (GOV.level === 1){ renderer.setPixelRatio(Math.max(1, renderer.getPixelRatio() * 0.7)); renderer.setSize(innerWidth, innerHeight); resizePost(); }   // cũng tắt hậu kỳ (renderFrame)
   else if (GOV.level === 2){ renderer.shadowMap.enabled = false; scene.traverse(function(o){ if (o.material && o.material.needsUpdate !== undefined) o.material.needsUpdate = true; }); }
   else { var C = anim.crowd; if (C) C.mesh.geometry.instanceCount = Math.floor(C.n / 2); try { if (!LITE) localStorage.setItem('nt-q', 'lite'); } catch (e){} }
   console.info('[chất lượng] FPS ' + fps.toFixed(0) + ' → hạ xuống bậc ' + GOV.level); }
@@ -287,7 +291,7 @@ function governor(d){ if (document.hidden || d <= 0 || d > 0.5) return; GOV.t +=
 async function build(){
   await step('Đang dựng địa hình…');
   G = buildGrid(LITE ? 1.5 : 1.0);
-  ROADS_S = ROADS.map(function(R){ return sampleRoad(R.pts, R.w); }); RAIL_S = sampleRoad(RAIL, 0.4, true);
+  ROADS_S = OSM ? osmMajorRoads() : ROADS.map(function(R){ return sampleRoad(R.pts, R.w); }); RAIL_S = sampleRoad(RAIL, 0.4, true);
   await step('Đang vẽ mặt đất…');
   var MW = Math.round(BW * 4), MH = Math.round(BD * 4), mcv = document.createElement('canvas'); mcv.width = MW; mcv.height = MH;
   var mctx = mcv.getContext('2d'); worldCtx(mctx, MW, MH); drawOverlays(mctx, true);
@@ -309,9 +313,9 @@ async function build(){
   buildCrowd(); buildPlayer(B);
   ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color:'#f2592c', transparent:true, opacity:0.9, depthWrite:false, side:THREE.DoubleSide })); ring.visible = false; ring.renderOrder = 3; scene.add(ring);
   setupLM(); setupUI(); setupPlay();
-  initWeather(); todTarget = tod = realTod(); applyTod(tod); syncTimeBtn();
+  initPost(); initWeather(); todTarget = tod = realTod(); applyTod(tod); syncTimeBtn();
   computeHome(); setCam(homeTarget, homeDist, HOME_PHI, HOME_TH); controls.update(); setSpin(!reduceMotion);
-  window.__nt = { PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return keys; }, G:G, B:B, T:T, ROADS_S:ROADS_S, RAIL_S:RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:controls, setCam:setCam, audio:AU, gov:GOV, lite:LITE, wx:WX, sunPos:sunPos, lmp:LMP };
+  window.__nt = { PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return keys; }, G:G, B:B, T:T, ROADS_S:ROADS_S, RAIL_S:RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:controls, setCam:setCam, audio:AU, gov:GOV, lite:LITE, wx:WX, sunPos:sunPos, lmp:LMP, post:POST };
   ready = true; loader.hidden = true; requestAnimationFrame(frame);
 }
 build().catch(function(e){ console.error(e); fail('Không dựng được bản đồ: ' + (e && e.message ? e.message : e)); });
