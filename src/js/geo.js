@@ -429,7 +429,8 @@ var OSM = (function(){ if (typeof OSM_DATA === 'undefined') return null; var D =
     for (var n = 0; n < o.n; n++){ var np = hd[h], meta = []; for (var k = 1; k <= hn; k++) meta.push(hd[h + k]); h += hn + 1;
       var pts = []; for (k = 0; k < np; k++){ pts.push([co[p] / D.q, co[p + 1] / D.q]); p += 2; } out.push(mk(meta, pts)); }
     return out; }
-  var roads = polys(D.roads, 4, function(m, pts){ return { c:m[0], l:m[1], name:m[2] >= 0 ? D.names[m[2]] : '', bridge:!!m[3], w:Math.max(ROAD_W[m[0]], m[1] * 0.09), pts:pts }; });
+  // cờ m[3]: 1 cầu, 2 một chiều — đường đôi trong OSM là hai đường một chiều song song, mỗi bên chỉ rộng ~nửa đường hai chiều
+  var roads = polys(D.roads, 4, function(m, pts){ var ow = !!(m[3] & 2); return { c:m[0], l:m[1], name:m[2] >= 0 ? D.names[m[2]] : '', bridge:!!(m[3] & 1), oneway:ow, w:ow ? Math.max(ROAD_W[m[0]] * 0.55, m[1] * 0.09, 0.12) : Math.max(ROAD_W[m[0]], m[1] * 0.09), pts:pts }; });
   var builds = polys(D.builds, 2, function(m, pts){ return { lv:m[0], k:m[1], pts:pts }; });
   var rails = (D.rails || []).map(function(r){ var c = i16(r), o = []; for (var i = 0; i + 1 < c.length; i += 2) o.push([c[i] / D.q, c[i + 1] / D.q]); return o; }), i;
   // mặt nạ RLE (mặt nước, đất đảo) -> trường khoảng cách có dấu (đơn vị bản đồ; âm = trong mặt nạ), chamfer hai lượt

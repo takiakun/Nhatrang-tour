@@ -39,7 +39,8 @@ function buildCollision(B){
   [['ponagar', 1.3], ['cho-dam', 1.05], ['nha-tho', 0.4], ['tram-huong', 0.3], ['vien-hdh', 1.0], ['yersin', 0.55], ['bao-dai', 0.7], ['hon-do', 0.5], ['hon-chong', 0.8]].forEach(function(c){ var p = LMP[c[0]]; colAddOBB(p[0], p[1], c[1] * 1.6, c[1] * 1.6, 0.4); });
   [LMP.pagoda, LMP.buddha].forEach(function(p){ colAddOBB(p[0], p[1], 0.75, 0.6, 0.1); });
   [LMP.cableA, LMP.cableB].forEach(function(p){ colAddOBB(p[0], p[1], 0.45, 0.45, 0); });
-  ROADS_S.concat([RAIL_S]).forEach(function(R){ R.pts.forEach(function(p){ if (!p.br) return; var k = ckey(Math.floor(p.x), Math.floor(p.z)), a = DECK.get(k); if (!a){ a = []; DECK.set(k, a); } a.push({ x:p.x, z:p.z, y:p.y, r:Math.max(0.3, (R.rail ? 0.5 : R.w + 0.16) / 2 + 0.04) }); }); });
+  // mặt cầu (br) và đường đắp qua chỗ thấp (cw) đều là mặt đường xe chạy được
+  ROADS_S.concat([RAIL_S]).forEach(function(R){ R.pts.forEach(function(p){ if (!p.br && !p.cw) return; var k = ckey(Math.floor(p.x), Math.floor(p.z)), a = DECK.get(k); if (!a){ a = []; DECK.set(k, a); } a.push({ x:p.x, z:p.z, y:p.y, r:Math.max(0.3, (R.rail ? 0.5 : R.w + 0.16) / 2 + 0.04) }); }); });
 }
 function deckAt(x, z){ var best = null, ix = Math.floor(x), iz = Math.floor(z);
   for (var a = -1; a <= 1; a++) for (var b = -1; b <= 1; b++){ var L = DECK.get(ckey(ix + a, iz + b)); if (!L) continue;

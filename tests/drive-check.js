@@ -1,0 +1,47 @@
+// Lái thử xe máy qua các cầu lớn (three.js thay bằng stub như smoke test, vật lý xe chạy thật):
+// đặt xe trước đầu cầu, giữ ga, xe phải sang tới đầu bên kia. Bắt các lỗi "cầu không đi được": khe nước ở đầu cầu,
+// bờ thấp bị coi là nước, mặt cầu đứt, vướng nhà. Dùng: node tests/drive-check.js
+const { chromium } = require('playwright'); const fs = require('fs'); const path = require('path');
+const BRIDGES = ['Cầu Xóm Bóng', 'Cầu Trần Phú'];
+(async () => {
+  const html = fs.readFileSync(path.join(__dirname, '../dist/index.html'), 'utf8'), stub = fs.readFileSync(path.join(__dirname, 'stub-three.js'), 'utf8');
+  const browser = await chromium.launch(), page = await (await browser.newContext({ viewport:{ width:1200, height:800 } })).newPage(), errs = [];
+  page.on('pageerror', e => errs.push(e.message));
+  await page.route('**/*', r => { const u = r.request().url();
+    if (u.includes('three.min.js')) return r.fulfill({ contentType:'application/javascript', body:stub });
+    if (u.includes('OrbitControls') || u.includes('GLTFLoader')) return r.fulfill({ contentType:'application/javascript', body:'' });
+    if (u.startsWith('http://local/')) return r.fulfill({ contentType:'text/html', body:html });
+    return r.abort(); });
+  await page.goto('http://local/'); await page.waitForFunction(() => window.__nt, null, { timeout:90000 });
+  await page.click('#btnPlay'); await page.waitForTimeout(1500); await page.evaluate(() => __nt.toggleMount()); await page.waitForTimeout(300);
+  let bad = 0;
+  for (const name of BRIDGES){
+    // đoạn cầu: đường mang tên này có nhiều điểm mặt cầu nhất; đặt xe trên đường dẫn, cách đầu cầu ~75 m, hướng về đầu kia
+    // tuyến lái: ~300 m đường dẫn thật nối vào đầu cầu + cầu + ~300 m đường nối ở đầu kia (đường OSM chung đầu mút)
+    const seg = await page.evaluate(n => { let best = null; __nt.ROADS_S.forEach(R => { if (R.name !== n) return; const k = R.pts.filter(p => p.br).length; if (k && (!best || k > best.k)) best = { k, R }; });
+      if (!best) return null; const B = best.R.pts.map(p => [p.x, p.z]);
+      function link(end, other){ let got = null, gd = 0.35; __nt.ROADS_S.forEach(R => { if (R === best.R || R.rail) return; const q = R.pts.map(p => [p.x, p.z]);
+          [[q[0], q], [q[q.length - 1], q.slice().reverse()]].forEach(([e, seq]) => { const d = Math.hypot(e[0] - end[0], e[1] - end[1]); if (d < gd && Math.hypot(seq[seq.length - 1][0] - other[0], seq[seq.length - 1][1] - other[1]) > Math.hypot(e[0] - other[0], e[1] - other[1])){ gd = d; got = seq; } }); });
+        return got ? got.slice(0, 13) : []; }
+      const pre = link(B[0], B[B.length - 1]).reverse(), post = link(B[B.length - 1], B[0]);
+      const path = pre.slice(0, -1).concat(B, post.slice(1)), i0 = Math.max(0, pre.length - 1); return { path, i0, i1:i0 + B.length - 1 }; }, name);
+    if (!seg){ console.log('✗ ' + name + ': không tìm thấy mặt cầu'); bad++; continue; }
+    for (const [path, endIdx] of [[seg.path, seg.i1], [seg.path.slice().reverse(), seg.path.length - 1 - seg.i0]]){   // hai chiều, bám tim đường; đạt khi vượt đầu cầu bên kia ≥ 50 m
+      const from = path[0], to = path[path.length - 1], ux0 = path[1][0] - from[0], uz0 = path[1][1] - from[1], l0 = Math.hypot(ux0, uz0), ux = ux0 / l0, uz = uz0 / l0, sx = from[0] - ux * 1.5, sz = from[1] - uz * 1.5;
+      const L = path.reduce((a, p, i) => i ? a + Math.hypot(p[0] - path[i - 1][0], p[1] - path[i - 1][1]) : 0, 0);
+      await page.evaluate(([x, z, yaw]) => { const b = __nt.PL.bike; b.x = x; b.z = z; b.yaw = yaw; b.speed = 0; }, [sx, sz, Math.atan2(ux, uz)]);
+      await page.keyboard.down('KeyW'); let prog = 0, msg = '', t0 = Date.now();
+      while (Date.now() - t0 < 4000 + L * 900){ await page.waitForTimeout(250);
+        const s = await page.evaluate(() => { const b = __nt.PL.bike, m = document.getElementById('playMsg'); return { x:b.x, z:b.z, m:m ? m.textContent : '' }; });
+        // lái theo tim đường (vật lý thật, chỉ chỉnh hướng): điểm trên đường cách xe ~1 đơn vị về phía trước
+        let ni = 0, nd = 1e9; path.forEach((p, i) => { const d = Math.hypot(p[0] - s.x, p[1] - s.z); if (d < nd){ nd = d; ni = i; } });
+        const tg = path[Math.min(path.length - 1, ni + 2)], ex = to[0] + (to[0] - path[path.length - 2][0]) * 6, ez = to[1] + (to[1] - path[path.length - 2][1]) * 6, aim = ni >= path.length - 2 ? [ex, ez] : tg;
+        await page.evaluate(([x, z]) => { const b = __nt.PL.bike; b.yaw = Math.atan2(x - b.x, z - b.z); }, aim);
+        prog = Math.max(prog, ni); if (s.m) msg = s.m; if (prog >= Math.min(path.length - 1, endIdx + 2)) break; }
+      await page.keyboard.up('KeyW'); await page.waitForTimeout(200);
+      const ok = prog >= Math.min(path.length - 1, endIdx + 2); if (!ok) bad++;
+      console.log((ok ? '✓ ' : '✗ ') + name + ' (tuyến ' + Math.round(L * 50) + ' m, đầu cầu bên kia ở mét ' + endIdx * 50 / 2 + '): tới mét ' + prog * 50 / 2 + (ok ? '' : ' — dừng' + (msg ? ': "' + msg + '"' : '')));
+    } }
+  if (errs.length){ console.log('Lỗi JS: ' + errs.join(' | ')); bad++; }
+  await browser.close(); console.log(bad ? '[drive] ' + bad + ' lượt không qua được cầu' : '[drive] Qua được mọi cầu'); process.exit(bad ? 1 : 0);
+})();
