@@ -429,8 +429,8 @@ var OSM = (function(){ if (typeof OSM_DATA === 'undefined') return null; var D =
     for (var n = 0; n < o.n; n++){ var np = hd[h], meta = []; for (var k = 1; k <= hn; k++) meta.push(hd[h + k]); h += hn + 1;
       var pts = []; for (k = 0; k < np; k++){ pts.push([co[p] / D.q, co[p + 1] / D.q]); p += 2; } out.push(mk(meta, pts)); }
     return out; }
-  // cờ m[3]: 1 cầu, 2 một chiều — đường đôi trong OSM là hai đường một chiều song song, mỗi bên chỉ rộng ~nửa đường hai chiều
-  var roads = polys(D.roads, 4, function(m, pts){ var ow = !!(m[3] & 2); return { c:m[0], l:m[1], name:m[2] >= 0 ? D.names[m[2]] : '', bridge:!!(m[3] & 1), oneway:ow, w:ow ? Math.max(ROAD_W[m[0]] * 0.55, m[1] * 0.09, 0.12) : Math.max(ROAD_W[m[0]], m[1] * 0.09), pts:pts }; });
+  // cờ m[3]: 1 cầu, 2 một chiều — đường đôi trong OSM là hai đường một chiều song song, mỗi bên chỉ rộng ~nửa đường hai chiều; 4 bùng binh
+  var roads = polys(D.roads, 4, function(m, pts){ var ow = !!(m[3] & 2); return { c:m[0], l:m[1], name:m[2] >= 0 ? D.names[m[2]] : '', bridge:!!(m[3] & 1), round:!!(m[3] & 4), oneway:ow, w:ow ? Math.max(ROAD_W[m[0]] * 0.55, m[1] * 0.09, 0.12) : Math.max(ROAD_W[m[0]], m[1] * 0.09), pts:pts }; });
   var builds = polys(D.builds, 2, function(m, pts){ return { lv:m[0], k:m[1], pts:pts }; });
   var rails = (D.rails || []).map(function(r){ var c = i16(r), o = []; for (var i = 0; i + 1 < c.length; i += 2) o.push([c[i] / D.q, c[i + 1] / D.q]); return o; }), i;
   // mặt nạ RLE (mặt nước, đất đảo) -> trường khoảng cách có dấu (đơn vị bản đồ; âm = trong mặt nạ), chamfer hai lượt
@@ -447,6 +447,33 @@ var OSM = (function(){ if (typeof OSM_DATA === 'undefined') return null; var D =
     return { f:f, w:nx, h:nz, step:W.step }; }
   var wd = field(D.water), ld = field(D.land);
   return { roads:roads, builds:builds, classes:D.classes, rails:rails, water:wd, land:ld }; })();
+// bùng binh: OSM chia một vòng xoay thành nhiều cung; gom các cung chung đầu mút (hoặc gần nhau) thành một vòng, tâm = trung bình điểm,
+// bán kính tim đường = khoảng cách trung bình tới tâm, bề rộng làn theo cấp đường lớn nhất của vòng (hẹp hơn bán kính)
+function osmRoundabouts(){ var arcs = OSM.roads.filter(function(R){ return R.round; }), grp = arcs.map(function(a, i){ return i; });
+  function root(i){ while (grp[i] !== i) i = grp[i] = grp[grp[i]]; return i; }
+  for (var i = 0; i < arcs.length; i++) for (var j = i + 1; j < arcs.length; j++){ var A = arcs[i].pts, B = arcs[j].pts, hit = false;
+    [A[0], A[A.length - 1]].forEach(function(p){ [B[0], B[B.length - 1]].forEach(function(q){ if (Math.hypot(p[0] - q[0], p[1] - q[1]) < 0.25) hit = true; }); });
+    if (hit) grp[root(i)] = root(j); }
+  // tâm, bán kính: nội suy đường tròn bình phương tối thiểu (Kåsa) — cung hở thì trung bình điểm lệch khỏi tâm
+  function fit(pts){ var n = pts.length, mx = 0, mz = 0; pts.forEach(function(p){ mx += p[0]; mz += p[1]; }); mx /= n; mz /= n;
+    var Suu = 0, Svv = 0, Suv = 0, Suuu = 0, Svvv = 0, Suvv = 0, Svuu = 0;
+    pts.forEach(function(p){ var u = p[0] - mx, v = p[1] - mz; Suu += u * u; Svv += v * v; Suv += u * v; Suuu += u * u * u; Svvv += v * v * v; Suvv += u * v * v; Svuu += v * u * u; });
+    var det = Suu * Svv - Suv * Suv, uc, vc; if (Math.abs(det) < 1e-9){ uc = 0; vc = 0; }
+    else { var b1 = (Suuu + Suvv) / 2, b2 = (Svvv + Svuu) / 2; uc = (b1 * Svv - b2 * Suv) / det; vc = (Suu * b2 - Suv * b1) / det; }
+    var cx = mx + uc, cz = mz + vc, r = 0; pts.forEach(function(p){ r += Math.hypot(p[0] - cx, p[1] - cz); }); return { x:cx, z:cz, r:r / n }; }
+  var G0 = {}; arcs.forEach(function(a, i){ (G0[root(i)] = G0[root(i)] || []).push(a); });
+  var L = Object.keys(G0).map(function(k){ var pts = []; G0[k].forEach(function(a){ pts = pts.concat(a.pts); }); var f = fit(pts); f.arcs = G0[k]; f.pts = pts; return f; });
+  for (var m = 0; m < L.length; m++) for (var q = m + 1; q < L.length; q++){ var A2 = L[m], B2 = L[q];   // gộp các cung rời của cùng một vòng xoay
+    if (A2.arcs && B2.arcs && Math.hypot(A2.x - B2.x, A2.z - B2.z) < Math.max(A2.r, B2.r) * 0.6 && Math.abs(A2.r - B2.r) < Math.max(A2.r, B2.r) * 0.6){
+      var pts2 = A2.pts.concat(B2.pts), f2 = fit(pts2); f2.arcs = A2.arcs.concat(B2.arcs); f2.pts = pts2; L[m] = f2; L.splice(q, 1); q = m; } }
+  return L.map(function(o){ var c = 9; o.arcs.forEach(function(a){ c = Math.min(c, a.c); }); var w = Math.min(ROAD_W[c] * 0.6, o.r * 0.75);
+    // vòng khép kín theo đúng hình OSM: điểm các cung xếp theo góc quanh tâm (vòng xoay hình trứng vẫn đúng hình)
+    var ring = o.pts.slice().sort(function(a, b){ return Math.atan2(a[1] - o.z, a[0] - o.x) - Math.atan2(b[1] - o.z, b[0] - o.x); });
+    w = Math.max(w, 0.08); var inner = ring.map(function(p){ var d = Math.hypot(p[0] - o.x, p[1] - o.z) || 1, k = Math.max(0, d - w / 2 - 0.01) / d; return [o.x + (p[0] - o.x) * k, o.z + (p[1] - o.z) * k]; });
+    return { x:o.x, z:o.z, r:o.r, w:w, c:c, arcs:o.arcs, ring:ring, inner:inner }; }).filter(function(o){ return o.r > 0.08 && o.r < 3; }); }
+// khoảng cách tới bùng binh gần nhất trừ bán kính ngoài (âm = trên vòng hoặc đảo)
+function roundD(x, z){ var m = 1e9; for (var i = 0; i < ROUNDS.length; i++){ var o = ROUNDS[i], d = Math.hypot(x - o.x, z - o.z) - o.r - o.w / 2; if (d < m) m = d; } return m; }
+var ROUNDS = OSM ? osmRoundabouts() : [];
 if (OSM && OSM.rails.length) RAIL = OSM.rails[0];   // đường sắt thật: chuỗi dài nhất cho tàu chạy, các chuỗi khác (bãi ga, đường vòng) chỉ vẽ ray
 // khoảng cách có dấu tới mặt nước OSM (nội suy song tuyến); ngoài lưới coi như xa nước
 function osmLandS(x, z){ return fieldS(OSM.land, x, z); }   // khoảng cách có dấu tới đất đảo OSM (âm = trên đảo)

@@ -4,6 +4,12 @@
 // mây, mưa, gió. Không tải được (ví dụ khi đăng làm Claude artifact, mạng bị chặn) thì trời quang, không có lỗi.
 var WX = { real:true, ok:false, cloud:0.3, rain:0, wind:3, temp:null, code:null, k:{ cloud:0.3, rain:0 }, next:0, sunEl:45, sunAz:120 };
 var WX_LAT = 12.24, WX_LON = 109.19;
+// chế độ thời tiết người dùng chọn: 'real' theo Open-Meteo, 'sun' trời nắng, 'rain' mưa (lưu trong localStorage)
+var WX_MODES = ['real', 'sun', 'rain'], WX_MODE_NAMES = { real:'Thời tiết thật', sun:'Trời nắng', rain:'Trời mưa' };
+WX.mode = 'real'; try { var _wm = localStorage.getItem('nt-wx'); if (WX_MODES.indexOf(_wm) >= 0) WX.mode = _wm; } catch (e){}
+function setWxMode(m){ WX.mode = m; try { localStorage.setItem('nt-wx', m); } catch (e){} syncWxBtn(); }
+function syncWxBtn(){ var t = document.getElementById('btnWxText'), b = document.getElementById('btnWx'); if (!t) return; t.textContent = WX_MODE_NAMES[WX.mode];
+  if (b) b.setAttribute('aria-label', 'Đổi thời tiết, hiện: ' + WX_MODE_NAMES[WX.mode]); }
 
 // độ cao (el) và phương vị (az, tính từ Bắc theo chiều kim đồng hồ) của mặt trời, đơn vị độ
 function sunPos(date){
@@ -52,7 +58,8 @@ function drawRain(dt, k, near){ var c = WX.rainCv; if (!c) return; var on = k > 
     var px = d.x * W, py = d.y * Hh, ll = L * d.l; x.moveTo(px, py); x.lineTo(px - ll * sl, py + ll); }
   x.stroke(); }
 
-function initWeather(){ buildRain(); fetchWeather(); setInterval(fetchWeather, 15 * 60 * 1000); }
+function initWeather(){ buildRain(); syncWxBtn(); var b = document.getElementById('btnWx'); if (b) b.addEventListener('click', function(){ setWxMode(WX_MODES[(WX_MODES.indexOf(WX.mode) + 1) % WX_MODES.length]); });
+  fetchWeather(); setInterval(fetchWeather, 15 * 60 * 1000); }
 // Gọi ở cuối applyTod(): chỉnh ánh sáng theo mây/mưa và hướng nắng thật (applyTod luôn đặt lại giá trị gốc nên không bị cộng dồn)
 function weatherLight(){ var k = WX.k, dim = clamp(k.cloud * 0.35 + k.rain * 0.45, 0, 0.75);
   sun.intensity *= 1 - dim; hemi.intensity *= 1 + dim * 0.25; scene.fog.color.lerp(_wxGrey, k.rain * 0.45); renderer.toneMappingExposure *= 1 - k.rain * 0.15;
@@ -61,7 +68,8 @@ function weatherLight(){ var k = WX.k, dim = clamp(k.cloud * 0.35 + k.rain * 0.4
 var wxT = 0, _wxGrey = new THREE.Color('#9aa5ad');
 // gọi mỗi khung từ frame(): làm mượt mây/mưa, ẩn bớt mây khi trời quang, mưa quanh camera; mỗi giây áp lại ánh sáng; chế độ giờ thật đổi todTarget
 function updateWeather(dt, ts, dist){
-  var k = WX.k, a = Math.min(1, dt * 0.5); k.cloud += ((WX.ok ? WX.cloud : 0.3) - k.cloud) * a; k.rain += (WX.rain - k.rain) * a;
+  var k = WX.k, a = Math.min(1, dt * 0.5), tc = WX.mode === 'rain' ? 0.9 : (WX.mode === 'sun' ? 0.15 : (WX.ok ? WX.cloud : 0.3)), tr = WX.mode === 'rain' ? 0.75 : (WX.mode === 'sun' ? 0 : WX.rain);
+  k.cloud += (tc - k.cloud) * a; k.rain += (tr - k.rain) * a;
   wxT -= dt; if (wxT <= 0){ wxT = 1; if (WX.real) todTarget = realTod(); if (Math.abs(tod - todTarget) <= 0.003) applyTod(tod);
     anim.clouds.forEach(function(c, i){ c.visible = i / anim.clouds.length < 0.25 + k.cloud * 0.85; }); }
   drawRain(dt, k.rain, PLAY.on ? 1 : clamp(1.4 - dist / 120, 0, 1));
