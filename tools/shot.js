@@ -46,7 +46,8 @@ const MIME = { '.html':'text/html', '.js':'application/javascript', '.css':'text
   await page.waitForTimeout(2500);
   // chờ n khung hình thật (mỗi khung trong SwiftShader mất vài giây) để bóng, nội suy, sương mù ổn định
   const frames = async n => { const f0 = await page.evaluate(() => __nt.frames()); await page.waitForFunction(([f0, n]) => __nt.frames() >= f0 + n, [f0, n], { timeout:300000, polling:200 }); };
-  await page.evaluate(() => { __nt.controls.autoRotate = false; });
+  // bộ điều tốc hạ chất lượng (tắt hậu kỳ…) khi khung hình chậm; trong SwiftShader luôn chậm nên khoá lại để ảnh so sánh được
+  await page.evaluate(() => { __nt.controls.autoRotate = false; if (__nt.GOV) __nt.GOV.wait = 1e9; });
   for (const name of want){ const v = VIEWS[name]; if (!v){ console.log('bỏ qua cảnh lạ: ' + name); continue; }
     await page.evaluate(([v]) => { __nt.setTod(v.tod); __nt.setWx(v.wx); if (v.home) return __nt.home();
       const p = v.lm ? __nt.lmp[v.lm] : [(v.ll[1] - 109.240) * 2176, -(v.ll[0] - 12.226) * 2212];

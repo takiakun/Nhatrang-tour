@@ -4,12 +4,11 @@
 //   - ESA WorldCover 2021 v200 (lớp phủ mặt đất 10 m, CC BY 4.0): lưới 50 m, nén RLE
 // File gốc tải về .cache/ (bỏ qua khi commit). Cần curl và gói geotiff (npm i).
 // Dùng: node tools/fetch-terrain.js [--preview]   (--preview ghi thêm .cache/terrain-preview.png để so với đường bờ ước lượng)
-const fs = require('fs'), path = require('path'), vm = require('vm'), zlib = require('zlib'), { execFileSync } = require('child_process');
+const fs = require('fs'), path = require('path'), zlib = require('zlib'), { execFileSync } = require('child_process');
 const { readPNG } = require('./lib/png');
 const ROOT = path.join(__dirname, '..'), CACHE = path.join(ROOT, '.cache');
-// lấy hằng số và hàm toạ độ từ geo.js (JS thuần) để không phải chép lại
-const G = {}; vm.runInNewContext(fs.readFileSync(path.join(ROOT, 'src/js/geo.js'), 'utf8') + '\nthis.out = { P, toLL, H, BX0, BX1, BZ0, BZ1, coastX, ISLANDS, inPoly };', G);
-const { toLL, BX0, BX1, BZ0, BZ1 } = G.out;
+
+const GEO = require('./lib/geo-nodata'), { toLL, BX0, BX1, BZ0, BZ1 } = GEO;   // geo.js không kèm dữ liệu cũ (terrain-data.js)
 const DEM_STEP = 2, LC_STEP = 1;   // đơn vị bản đồ (1 = 50 m)
 
 function get(url, file){ const f = path.join(CACHE, file); if (!fs.existsSync(f)){ fs.mkdirSync(CACHE, { recursive:true }); console.log('tải ' + url);
@@ -59,13 +58,13 @@ function rle(arr){ const out = []; for (let i = 0; i < arr.length;){ let j = i; 
   const out = '/* Tự sinh bởi tools/fetch-terrain.js, đừng sửa tay.\n' +
     '   Độ cao: Copernicus DEM GLO-30 (© DLR e.V. 2010-2014 và © Airbus Defence and Space GmbH 2014-2018, cấp phép bởi ESA/Copernicus); độ sâu biển: AWS Terrain Tiles (ETOPO1/GEBCO).\n' +
     '   Lớp phủ: ESA WorldCover 10 m 2021 v200 (© ESA WorldCover project / Contains modified Copernicus Sentinel data (2021), CC BY 4.0). */\n' +
-    'var TERRAIN_DATA = { step:' + DEM_STEP + ', nx:' + DX + ', nz:' + DZ + ', elev:"' + b64(Int16Array, elev) + '",\n' +
+    'export var TERRAIN_DATA = { step:' + DEM_STEP + ', nx:' + DX + ', nz:' + DZ + ', elev:"' + b64(Int16Array, elev) + '",\n' +
     '  lcStep:' + LC_STEP + ', lcx:' + LX + ', lcz:' + LZ + ', lcClasses:' + JSON.stringify(CLS) + ', lc:"' + Buffer.from(lcR).toString('base64') + '" };\n';
   fs.writeFileSync(path.join(ROOT, 'src/js/terrain-data.js'), out);
   console.log('[terrain] ' + (out.length / 1024).toFixed(0) + ' KB -> src/js/terrain-data.js (lớp phủ RLE ' + (lcR.length / 1024).toFixed(0) + ' KB)');
 
   if (process.argv.includes('--preview')){ // ảnh so sánh: xám = độ cao thật, xanh = biển thật, đỏ = đường bờ ước lượng hiện tại (H = 0)
-    const W = DX, Hh = DZ, px = Buffer.alloc(W * Hh * 3), { H } = G.out;
+    const W = DX, Hh = DZ, px = Buffer.alloc(W * Hh * 3), { H } = GEO;
     for (let j = 0; j < Hh; j++) for (let i = 0; i < W; i++){ const e = elev[j * W + i] / 10, q = (j * W + i) * 3, x = BX0 + i * DEM_STEP, z = BZ0 + j * DEM_STEP, est = H(x, z) > 0;
       let r, g, b; if (e > 0){ const k = Math.min(1, e / 600); r = g = b = 90 + k * 165; } else { const k = Math.min(1, -e / 40); r = 40; g = 120 - k * 60; b = 200 - k * 80; }
       const eN = H(x + DEM_STEP, z) > 0, eS = H(x, z + DEM_STEP) > 0; if (est !== eN || est !== eS){ r = 255; g = 40; b = 40; }

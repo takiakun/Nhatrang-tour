@@ -1,3 +1,5 @@
+import { TERRAIN_DATA } from './terrain-data.js';
+import { OSM_DATA } from './osm-data.js';
 /* ======================= GEOGRAPHY (pure JS, no three.js) ======================= */
 /* 1 unit = 50 m on the ground. Terrain heights are exaggerated (VE), buildings less so (VB). */
 var LAT0 = 12.226, LON0 = 109.240, KX = 2176, KZ = 2212;
@@ -659,3 +661,5 @@ var ROAD_LABELS = [
   { t:'Đường 23 Tháng 10', ll:[12.2478,109.1700] },
   { t:'Đường Lê Hồng Phong', ll:[12.2300,109.1877] }
 ];
+
+export { BD, BR, BW, BX0, BX1, BZ0, BZ1, COAST, COAST_REAL, DIST, FALLOW, FCA, FLOOD, FLOOR, FSA, GEO_LABELS, H, HILLS, HON_DO, ISLANDS, KX, KZ, LAT0, LC_TINT, LC_TREES, LLs, LM_DEF, LM_EXTRA, LON0, MID_F, OSM, P, PADS, PAL, PCA, PK, PONDC, PONDS, PSA, RAIL, RG, RICE, RIDGES, RIVERS, ROADS, ROAD_LABELS, ROAD_W, ROOF_C, ROUNDS, TOWER_C, TOWER_F, TR, TUBE_C, TUBE_F, URB, VB, VE, VILLA_C, bboxOf, boardClamp, buildGrid, carveH, clamp, coastX, coastalRoad, districtAt, fbm, fieldS, fillPoly, genBuildings, genBuildingsOSM, genTrees, groundColor, hash, hex3, ih, inBoard, inBox, inPoly, inPonds, islandAt, islandH, islandSD, landRuns, lcAt, lerp, lineDist, mainlandH, mixc, mountains, mulberry32, nearestIdx, obbOf, osmLandS, osmRoundabouts, osmWaterS, paintGround, polyEdgeDist, prepRidges, realH, resample, ridgeH, ridgesAt, riverS, roundD, segD2, setc, smooth, strokeLine, toLL, toLocal, toWorld, trSample, vnoise, worldCtx, zHonChong, zRiverMouth };

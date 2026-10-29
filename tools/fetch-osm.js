@@ -3,10 +3,9 @@
 // rồi rút gọn thành src/js/osm-data.js (toạ độ đơn vị bản đồ ×20, Int16; base64; mặt nước là mặt nạ 12,5 m nén RLE).
 // Dùng: node tools/fetch-osm.js [--refresh]
 // (Overpass từng dùng nhưng máy chủ công cộng hay quá tải 504, nên bỏ.)
-const fs = require('fs'), path = require('path'), vm = require('vm'), { execFileSync } = require('child_process');
+const fs = require('fs'), path = require('path'), { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..'), CACHE = path.join(ROOT, '.cache/osm');
-const G = {}; vm.runInNewContext(fs.readFileSync(path.join(ROOT, 'src/js/geo.js'), 'utf8') + '\nthis.out = { P, toLL, BX0, BX1, BZ0, BZ1, inBoard };', G);
-const { P, toLL, BX0, BX1, BZ0, BZ1, inBoard } = G.out;
+const { P, toLL, BX0, BX1, BZ0, BZ1, inBoard } = require('./lib/geo-nodata');
 const Q = 20;   // lượng tử hoá: 1/20 đơn vị = 2,5 m
 
 // loại đường -> mã (thứ tự = độ quan trọng). Bỏ lối đi bộ, đường mòn, bậc thang, đường nội bộ nhỏ.
@@ -147,7 +146,7 @@ function packPolys(list, head){ const co = [], hd = []; list.forEach(o => { hd.p
   return { co:Buffer.from(Int16Array.from(co).buffer).toString('base64'), hd:Buffer.from(Int16Array.from(hd).buffer).toString('base64') }; }
 const pr = packPolys(R, o => [o.c, o.l, o.ni, o.b]), pb = packPolys(B, o => [o.lv, o.k]);
 const out = '/* Tự sinh bởi tools/fetch-osm.js, đừng sửa tay. Dữ liệu © OpenStreetMap contributors, giấy phép ODbL (openstreetmap.org/copyright). */\n' +
-  'var OSM_DATA = { q:' + Q + ', classes:' + JSON.stringify(HW) + ',\n  roads:{ n:' + R.length + ', hd:"' + pr.hd + '", co:"' + pr.co + '" },\n  names:' + JSON.stringify(names) + ',\n  coast:' + JSON.stringify(coast) + ',\n' +
+  'export var OSM_DATA = { q:' + Q + ', classes:' + JSON.stringify(HW) + ',\n  roads:{ n:' + R.length + ', hd:"' + pr.hd + '", co:"' + pr.co + '" },\n  names:' + JSON.stringify(names) + ',\n  coast:' + JSON.stringify(coast) + ',\n' +
   '  builds:{ n:' + B.length + ', hd:"' + pb.hd + '", co:"' + pb.co + '" },\n' +
   '  water:{ step:' + WS + ', w:' + MW + ', h:' + MH + ', rle:"' + Buffer.from(Uint16Array.from(runs).buffer).toString('base64') + '" },\n' +
   '  land:{ step:' + WS + ', w:' + MW + ', h:' + MH + ', rle:"' + Buffer.from(Uint16Array.from(rle(lm)).buffer).toString('base64') + '" },\n' +

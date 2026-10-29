@@ -1,3 +1,8 @@
+import { THREE } from './three.js';
+import { ST } from '../state.js';
+import { clamp, smooth } from './geo.js';
+import { LITE, camera, lampK, reduceMotion, renderer, scene } from './scene.js';
+import { PLAY } from './player.js';
 /* ======================= HẬU KỲ (viền nét, sa bàn tilt-shift, toả sáng ban đêm) ======================= */
 // Không dùng EffectComposer: một render target (kèm độ sâu) + một chuỗi mờ độ phân giải 1/4 + một lượt ghép cuối.
 //  - Viền: dò cạnh trên độ sâu tuyến tính, tô nét màu chì, đậm khi nhìn gần (phong cách tranh vẽ, giữ màu cũ)
@@ -41,7 +46,7 @@ function resizePost(){ if (!POST.ok) return; var pr = renderer.getPixelRatio(), 
   POST.rt.setSize(w, h); POST.a.setSize(Math.max(2, w >> 2), Math.max(2, h >> 2)); POST.b.setSize(Math.max(2, w >> 2), Math.max(2, h >> 2)); POST.mats.fin.uniforms.uPx.value.set(1 / w, 1 / h); }
 // gọi thay cho renderer.render(scene, camera)
 function renderFrame(dist, dt){
-  var k = POST.k, want = POST.ok && GOV.level === 0 && !document.hidden;
+  var k = POST.k, want = POST.ok && ST.GOV.level === 0 && !document.hidden;
   var tEdge = want ? 1 - smooth(30, 140, dist) : 0, tTilt = want && !PLAY.on && !reduceMotion ? smooth(90, 260, dist) : 0, tBloom = want ? clamp((lampK - 0.2) / 0.6, 0, 1) : 0, a = Math.min(1, dt * 3);
   k.edge += (tEdge - k.edge) * a; k.tilt += (tTilt - k.tilt) * a; k.bloom += (tBloom - k.bloom) * a;
   if (!want || k.edge + k.tilt + k.bloom < 0.02){ renderer.render(scene, camera); return; }
@@ -54,3 +59,5 @@ function renderFrame(dist, dt){
   B.uniforms.tSrc.value = POST.b.texture; B.uniforms.uDir.value.set(0, sy); renderer.setRenderTarget(POST.a); renderer.render(POST.scene, POST.cam);
   var F = POST.mats.fin.uniforms; F.uNear.value = camera.near; F.uFar.value = camera.far; F.uEdge.value = k.edge * 0.85; F.uTilt.value = k.tilt; F.uBloom.value = k.bloom; F.uExp.value = renderer.toneMappingExposure;
   POST.quad.material = POST.mats.fin; renderer.setRenderTarget(null); renderer.render(POST.scene, POST.cam); renderer.toneMapping = tm; }
+
+export { POST, initPost, renderFrame, resizePost };
