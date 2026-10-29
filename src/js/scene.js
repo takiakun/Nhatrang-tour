@@ -221,7 +221,10 @@ function step(msg){ loaderText.textContent = msg; return new Promise(function(r)
 function hAt(x, z){ return G.hAt(x, z); }
 function gy(x, z){ return Math.max(G.hAt(x, z), 0); }
 
-function sampleRoad(pts, w, rail){ var s = resample(pts, 0.5), raw = [];
+// lấy mẫu đều, bước ≤ 0,5 vừa khít chiều dài (giữ đủ hai đầu; đường ngắn hơn 25 m vẫn có ít nhất 2 điểm — trước đây bị bỏ, đường lớn đứt quãng)
+function sampleRoad(pts, w, rail){ var Lt = 0; for (var q = 0; q < pts.length - 1; q++) Lt += Math.hypot(pts[q + 1][0] - pts[q][0], pts[q + 1][1] - pts[q][1]);
+  var step = Lt > 0 ? Lt / Math.max(1, Math.ceil(Lt / 0.5)) : 0.5, s = resample(pts, step * 0.9999), last = pts[pts.length - 1], raw = [];
+  if (Math.hypot(s[s.length - 1][0] - last[0], s[s.length - 1][1] - last[1]) > step * 0.5) s.push([last[0], last[1]]); else s[s.length - 1] = [last[0], last[1]];
   for (var i = 0; i < s.length; i++){ var x = s[i][0], z = s[i][1]; if (!inBoard(x, z, 1.2)){ raw.push(null); continue; } raw.push({ x:x, z:z, h:H(x, z) }); }
   var best = [], cur = []; raw.forEach(function(p){ if (p) cur.push(p); else { if (cur.length > best.length) best = cur; cur = []; } }); if (cur.length > best.length) best = cur;
   var out = best; out.forEach(function(o, i){ o.br = o.h < 0.16; });
@@ -229,20 +232,21 @@ function sampleRoad(pts, w, rail){ var s = resample(pts, 0.5), raw = [];
   out.forEach(function(o, i){ o.br = br2[i]; o.y0 = o.br ? 0.66 : G.hAt(o.x, o.z) + 0.015; });
   out.forEach(function(o, i){ var sum = 0, n = 0; for (var k = -2; k <= 2; k++){ var q = out[i + k]; if (q){ sum += q.y0; n++; } } o.y = o.br ? Math.max(0.66, sum / n) : sum / n; });
   for (i = 0; i < out.length; i++){ var a = out[Math.max(0, i - 1)], b = out[Math.min(out.length - 1, i + 1)], dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1; out[i].fx = dx / l; out[i].fz = dz / l; }
-  return { pts:out, w:w, rail:!!rail, L:(out.length - 1) * 0.5 }; }
+  return { pts:out, w:w, rail:!!rail, step:step, L:(out.length - 1) * step }; }
 // Đường lớn từ OSM (tới cấp tertiary) thành ROADS_S: xe chạy, đèn, cây ven đường, mặt cầu. Chỉ đường có thẻ bridge mới
 // được bắc cầu qua nước; đường khác đi qua chỗ nước (do bờ, sông ước lượng lệch) thì cắt bỏ đoạn đó.
 // Đường nhỏ (OSM_MINOR) chỉ vẽ lên mặt đất, chừa chỗ cho nhà và làm vỉa hè cho người đi bộ.
 var OSM_MINOR = [];
 function osmMajorRoads(){ var out = [], bEnds = {}, ek = function(q){ return Math.round(q[0] * 20) + ',' + Math.round(q[1] * 20); };
   OSM.roads.forEach(function(Rd){ if (Rd.bridge && Rd.c <= 4) [Rd.pts[0], Rd.pts[Rd.pts.length - 1]].forEach(function(q){ bEnds[ek(q)] = (bEnds[ek(q)] || 0) + 1; }); });   // đầu mút chung giữa các đoạn cầu
-  OSM.roads.forEach(function(Rd){ if (Rd.c > 4){ OSM_MINOR.push(Rd); return; }
+  OSM.roads.forEach(function(Rd){ if (Rd.round) return;   // bùng binh vẽ riêng thành vòng tròn (ROUNDS)
+    if (Rd.c > 4){ OSM_MINOR.push(Rd); return; }
     var S = sampleRoad(Rd.pts, Rd.w); if (S.pts.length < 2) return; S.name = Rd.name; S.cls = Rd.c;
     if (Rd.bridge){   // cầu OSM: mặt cầu suốt cả đường, hai đầu dốc từ mặt đất lên (không cụt giữa không trung)
-      var Q = S.pts, n = Q.length, ramp = Math.min(2.4, (n - 1) * 0.5 * 0.34), gA = Math.max(G.hAt(Q[0].x, Q[0].z), 0) + 0.015, gB = Math.max(G.hAt(Q[n - 1].x, Q[n - 1].z), 0) + 0.015;
+      var Q = S.pts, n = Q.length, ramp = Math.min(2.4, (n - 1) * S.step * 0.34), gA = Math.max(G.hAt(Q[0].x, Q[0].z), 0) + 0.015, gB = Math.max(G.hAt(Q[n - 1].x, Q[n - 1].z), 0) + 0.015;
       // đầu cầu trên mặt nước mà nối tiếp đoạn cầu khác thì giữ độ cao; đầu trên đất luôn dốc xuống (kể cả chỗ hai đường một chiều nhập lại)
       if (bEnds[ek(Rd.pts[0])] > 1 && G.hAt(Q[0].x, Q[0].z) < 0.05) gA = Math.max(0.66, gA); if (bEnds[ek(Rd.pts[Rd.pts.length - 1])] > 1 && G.hAt(Q[n - 1].x, Q[n - 1].z) < 0.05) gB = Math.max(0.66, gB);
-      Q.forEach(function(p, i){ var sA = i * 0.5, sB = (n - 1 - i) * 0.5, top = Math.max(0.66, gA, gB), g = Math.max(G.hAt(p.x, p.z), 0) + 0.015;
+      Q.forEach(function(p, i){ var sA = i * S.step, sB = (n - 1 - i) * S.step, top = Math.max(0.66, gA, gB), g = Math.max(G.hAt(p.x, p.z), 0) + 0.015;
         var y = sA < sB ? lerp(gA, top, smooth(0, ramp, sA)) : lerp(gB, top, smooth(0, ramp, sB)); p.br = true; p.y = Math.max(y, g); });
       out.push(S); return; }
     // đường thường (không phải cầu OSM) đi qua chỗ thấp sát nước (cù lao, bờ sông, bờ đê): giữ thành đường đắp có mặt đường cho xe chạy,
@@ -250,7 +254,7 @@ function osmMajorRoads(){ var out = [], bEnds = {}, ek = function(q){ return Mat
     S.pts.forEach(function(p){ if (p.br){ p.br = false; p.cw = true; p.y = Math.max(G.hAt(p.x, p.z), 0.04) + 0.03; } });
     out.push(S); });
   return out; }
-function roadPoint(R, s, o){ var f = s / 0.5, i = f | 0, n = R.pts.length; if (i > n - 2) i = n - 2; if (i < 0) i = 0; var t = clamp(f - i, 0, 1), a = R.pts[i], b = R.pts[i + 1];
+function roadPoint(R, s, o){ var f = s / (R.step || 0.5), i = f | 0, n = R.pts.length; if (i > n - 2) i = n - 2; if (i < 0) i = 0; var t = clamp(f - i, 0, 1), a = R.pts[i], b = R.pts[i + 1];
   o.x = a.x + (b.x - a.x) * t; o.y = a.y + (b.y - a.y) * t; o.z = a.z + (b.z - a.z) * t; o.fx = a.fx + (b.fx - a.fx) * t; o.fz = a.fz + (b.fz - a.fz) * t; var l = Math.hypot(o.fx, o.fz) || 1; o.fx /= l; o.fz /= l; return o; }
 
 var JETTIES = [], LMP = {}, RESORT_HOTELS = [[12.2200,109.2428,1.2,0.6,8,0.5],[12.2172,109.2445,1.0,0.55,6,-0.4],[12.2228,109.2452,0.9,0.5,10,0.2]];
@@ -271,20 +275,40 @@ function drawOverlays(ctx, isMask){
       if (!R.rail && R.pts.some(function(p){ return p.br; })) strokeLine(ctx, R.pts.map(function(p){ return [p.x, p.z]; })); });   // cầu: chừa cả dốc hai đầu
     OSM_MINOR.forEach(function(R){ ctx.lineWidth = R.w + 0.1; strokeLine(ctx, R.pts); });
     if (OSM) OSM.rails.slice(1).forEach(function(r){ ctx.lineWidth = 0.4; strokeLine(ctx, r); });
+    ROUNDS.forEach(function(o){ ctx.lineWidth = o.w + 0.2; ctx.lineJoin = 'round'; strokeLine(ctx, o.ring.concat([o.ring[0]])); fillPoly(ctx, o.ring); });
     fillPoly(ctx, plaza); KEEP.forEach(function(k){ ctx.beginPath(); ctx.arc(k[0], k[1], k[2], 0, Math.PI * 2); ctx.fill(); }); return; }
   ctx.strokeStyle = '#9fc46d'; ctx.lineWidth = 1.2; strokeLine(ctx, prom);
   ctx.strokeStyle = '#e9e1cc'; ctx.lineWidth = 0.3; strokeLine(ctx, prom);
   ctx.fillStyle = '#e2dac8'; fillPoly(ctx, plaza);
   ctx.strokeStyle = '#d5ccb7'; ctx.lineWidth = 0.05; for (var q = -1.5; q <= 1.5; q += 0.5){ strokeLine(ctx, [[coastX(zT + q) - 2.2, zT + q], [coastX(zT + q) - 0.85, zT + q]]); }
-  // Đường nhỏ OSM: vỉa hè rồi lòng đường; trong phố có vạch giữa nét đứt
-  OSM_MINOR.forEach(function(R){ ctx.strokeStyle = '#dcd5c6'; ctx.lineWidth = R.w + 0.1; strokeLine(ctx, R.pts); });
-  OSM_MINOR.forEach(function(R){ ctx.strokeStyle = '#96989a'; ctx.lineWidth = R.w; strokeLine(ctx, R.pts); });
-  OSM_MINOR.forEach(function(R){ if (R.c > 6) return; ctx.setLineDash([0.18, 0.22]); ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 0.018; strokeLine(ctx, R.pts); ctx.setLineDash([]); });
-  // Đường chính: vỉa hè, bó vỉa, lòng đường, hai vạch biên liền, vạch giữa nét đứt (đường rộng thì chia làn)
-  ROADS_S.forEach(function(R){ landRuns(R.pts).forEach(function(run){ ctx.strokeStyle = '#dcd5c6'; ctx.lineWidth = R.w + 0.26; strokeLine(ctx, run); ctx.strokeStyle = '#a59e90'; ctx.lineWidth = R.w + 0.07; strokeLine(ctx, run);
-    ctx.strokeStyle = '#86898c'; ctx.lineWidth = R.w; strokeLine(ctx, run); ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = R.w - 0.07; strokeLine(ctx, run); ctx.strokeStyle = '#86898c'; ctx.lineWidth = R.w - 0.11; strokeLine(ctx, run);
-    if (R.w > 0.5){ ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 0.045; strokeLine(ctx, run); ctx.strokeStyle = '#86898c'; ctx.lineWidth = 0.015; strokeLine(ctx, run); }
-    else { ctx.setLineDash([0.26, 0.3]); ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 0.035; strokeLine(ctx, run); ctx.setLineDash([]); } }); });
+  // Đường vẽ theo LỚP cho mọi đường (không vẽ trọn từng đường một, vì vỉa hè đường sau sẽ đè lòng đường và vạch đường trước ở giao lộ):
+  // vỉa hè → bó vỉa → lòng đường → vạch biên, vạch giữa → xoá vạch ở giao lộ bằng đĩa nhựa đường
+  var MAJ = []; ROADS_S.forEach(function(R){ landRuns(R.pts).forEach(function(run){ MAJ.push({ R:R, pts:run }); }); });
+  var MIN = OSM_MINOR.map(function(R){ return { R:R, pts:R.pts }; }), ALL = MIN.concat(MAJ), ASP = '#86898c';
+  function pass(list, c, wf, dash){ ctx.strokeStyle = c; if (dash) ctx.setLineDash(dash); list.forEach(function(u){ var w = wf(u.R); if (w > 0){ ctx.lineWidth = w; strokeLine(ctx, u.pts); } }); ctx.setLineDash([]); }
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  pass(ALL, '#dcd5c6', function(R){ return R.w + (R.c > 4 ? 0.1 : 0.26); });           // vỉa hè
+  pass(MAJ, '#a59e90', function(R){ return R.w + 0.07; });                             // bó vỉa đường lớn
+  pass(ALL, ASP, function(R){ return R.w; });                                          // lòng đường (đường nhỏ cùng màu đường lớn)
+  ctx.lineCap = 'butt';
+  pass(MAJ, 'rgba(255,255,255,0.75)', function(R){ return R.w - 0.07; }); pass(MAJ, ASP, function(R){ return R.w - 0.11; });   // hai vạch biên liền
+  pass(MAJ.filter(function(u){ return !u.R.oneway; }), 'rgba(255,255,255,0.85)', function(R){ return R.w > 0.5 ? 0.04 : 0; });  // dải giữa đường rộng hai chiều
+  pass(MAJ.filter(function(u){ return !u.R.oneway; }), 'rgba(255,255,255,0.85)', function(R){ return R.w > 0.5 ? 0 : 0.03; }, [0.26, 0.3]);   // vạch giữa nét đứt
+  pass(MIN.filter(function(u){ return u.R.c <= 6 && !u.R.oneway && u.R.w > 0.15; }), 'rgba(255,255,255,0.6)', function(){ return 0.016; }, [0.18, 0.22]);
+  // giao lộ: điểm đầu mút / điểm chung của ≥ 2 đường -> đĩa nhựa đường bán kính = nửa bề rộng đường lớn nhất tại đó (xoá vạch cắt ngang)
+  // (dùng điểm gốc OSM: đường lớn đã lấy mẫu lại nên điểm không trùng điểm nối của đường nhỏ)
+  var J = new Map(); if (OSM) OSM.roads.forEach(function(R){ if (R.bridge || R.round || R.c > 7) return; R.pts.forEach(function(p){ var k = Math.round(p[0] * 20) + ',' + Math.round(p[1] * 20), e = J.get(k);
+    if (!e){ e = { x:p[0], z:p[1], n:0, w:0, ids:[] }; J.set(k, e); } if (e.ids.indexOf(R) < 0){ e.ids.push(R); e.n++; e.w = Math.max(e.w, R.w); } }); });
+  J.forEach(function(e){ if (e.n === 2 && e.ids[0].name && e.ids[0].name === e.ids[1].name) e.n = 1; });   // hai khúc của cùng một đường nối nhau: không phải giao lộ
+  ctx.fillStyle = ASP; J.forEach(function(e){ if (e.n < 2) return; ctx.beginPath(); ctx.arc(e.x, e.z, e.w / 2 - 0.005, 0, Math.PI * 2); ctx.fill(); });
+  ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+  // bùng binh: vỉa hè, lòng đường vòng tròn đều, vạch biên, vạch chia làn nét đứt, đảo giữa có bó vỉa và cỏ (vẽ đè lên đầu các đường dẫn vào)
+  ROUNDS.forEach(function(o){ var R = o.ring.concat([o.ring[0]]), I = o.inner, ir = o.r - o.w / 2; ctx.lineJoin = 'round';
+    function band(w, c, dash){ ctx.strokeStyle = c; ctx.lineWidth = w; if (dash) ctx.setLineDash(dash); strokeLine(ctx, R); ctx.setLineDash([]); }
+    band(o.w + 0.2, '#dcd5c6'); band(o.w + 0.05, '#a59e90'); band(o.w, '#86898c'); if (o.w > 0.18) band(0.02, 'rgba(255,255,255,0.75)', [0.15, 0.18]);
+    if (ir > 0.04){ ctx.fillStyle = '#a59e90'; fillPoly(ctx, I); ctx.save(); ctx.translate(o.x, o.z); ctx.scale(0.9, 0.9); ctx.translate(-o.x, -o.z); ctx.fillStyle = '#8cbf5f'; fillPoly(ctx, I);
+      if (ir > 0.2){ ctx.scale(0.55, 0.55); ctx.translate(o.x / 0.55 - o.x, o.z / 0.55 - o.z); ctx.strokeStyle = '#e8b04a'; ctx.lineWidth = 0.08; ctx.setLineDash([0.05, 0.05]); strokeLine(ctx, I.concat([I[0]])); ctx.setLineDash([]); }
+      ctx.restore(); } });   // vòng xoay theo đúng hình OSM; đảo giữa: bó vỉa, cỏ, viền hoa
   if (OSM) OSM.rails.slice(1).forEach(function(r){ ctx.strokeStyle = '#a89c88'; ctx.lineWidth = 0.26; strokeLine(ctx, r); ctx.setLineDash([0.05, 0.07]); ctx.strokeStyle = '#6c5a48'; ctx.lineWidth = 0.18; strokeLine(ctx, r); ctx.setLineDash([]); });   // ray phụ: bãi ga, đường vòng
   landRuns(RAIL_S.pts).forEach(function(run){ ctx.strokeStyle = '#a89c88'; ctx.lineWidth = 0.46; strokeLine(ctx, run); ctx.setLineDash([0.05, 0.07]); ctx.strokeStyle = '#6c5a48'; ctx.lineWidth = 0.3; strokeLine(ctx, run); ctx.setLineDash([]); ctx.strokeStyle = '#4f4b47'; ctx.lineWidth = 0.06; strokeLine(ctx, run); });
   ctx.fillStyle = '#4fc3dd'; [[12.2196,109.2399,0.9,0.45],[12.2176,109.2424,0.6,0.38],[12.2206,109.2448,0.7,0.34],[12.1792,109.2318,0.5,0.3]].forEach(function(p){ var c = P(p[0], p[1]); ctx.fillRect(c[0] - p[2] / 2, c[1] - p[3] / 2, p[2], p[3]); });
@@ -539,7 +563,7 @@ function buildVegetation(T, B){
   var forest = [], round = [];
   T.round.forEach(function(t){ if (t.y > 1.1 && G.zoneAt(t.x, t.z) < 10) forest.push(t); else round.push(t); });
   B.yard.forEach(function(p){ var y = G.hAt(p.x, p.z); if (y > 0.3 && !MK(p.x, p.z)) round.push({ x:p.x, z:p.z, y:y, s:0.22 + ih(p.x * 10, p.z * 10) * 0.12, a:0, sq:1 }); });
-  ROADS_S.forEach(function(R){ R.pts.forEach(function(p, i){ if (i % 3 || p.br || p.cw) return; [-1, 1].forEach(function(s){ var x = p.x - p.fz * s * (R.w / 2 + 0.2), z = p.z + p.fx * s * (R.w / 2 + 0.2), y = G.hAt(x, z), zn = G.zoneAt(x, z);
+  ROADS_S.forEach(function(R){ R.pts.forEach(function(p, i){ if (i % 3 || p.br || p.cw) return; [-1, 1].forEach(function(s){ var x = p.x - p.fz * s * (R.w / 2 + 0.2), z = p.z + p.fx * s * (R.w / 2 + 0.2), y = G.hAt(x, z), zn = G.zoneAt(x, z); if (roundD(x, z) < 0.15) return;
       if (y > 0.36 && (zn >= 10 || zn === 1) && coastX(z) - x > 2.3) round.push({ x:x, z:z, y:y, s:0.2 + ih(i, s + 5) * 0.06, a:0, sq:1 }); }); }); });
   var TC = ['#5f9e48','#4f9140','#6aa84f','#3f8636','#78ad52','#58923f'], FC = ['#4a8a3c','#3f7d36','#56913f','#467f35','#5a8f3e','#6d9442','#7f9a4a'];
   instChunks(forestGeo, VCM, forest, function(d, it, c){ d.position.set(it.x, it.y - 0.05, it.z); d.rotation.y = it.a; d.scale.set(it.s, it.s * it.sq, it.s); c.set(FC[(ih(it.x * 7, it.z * 3) * FC.length) | 0]); });
@@ -547,6 +571,8 @@ function buildVegetation(T, B){
   instChunks(coneTreeGeo, VCM, T.cones, function(d, it, c){ d.position.set(it.x, it.y - 0.05, it.z); d.rotation.y = it.a; d.scale.setScalar(it.s * 1.4); c.set(['#3e7a38','#356f31','#4a8a3e'][(ih(it.x, it.z) * 3) | 0]); });
   var palms = T.palms.slice();
   function palmLine(lat0, lat1, off, stepL){ for (var z = P(lat0, 0)[1]; z <= P(lat1, 0)[1]; z += stepL){ var x = coastX(z) - off; if (!MK(x, z) || true){ var y = G.hAt(x, z); if (y > 0.25) palms.push({ x:x, z:z, y:y, s:0.95 + ih(z * 10, off * 10) * 0.35, a:ih(z * 3, 7) * 6.28, t:(ih(z * 5, 3) - 0.5) * 0.25 }); } } }
+  ROUNDS.forEach(function(o, k){ var ir = o.r - o.w / 2; if (ir < 0.22) return; var y = G.hAt(o.x, o.z), n = ir > 0.5 ? 4 : 2;   // cây cọ trên đảo bùng binh
+    palms.push({ x:o.x, z:o.z, y:y, s:0.9, a:k, t:0.05 }); for (var i = 0; i < n; i++){ var a = i / n * 6.283 + k; palms.push({ x:o.x + Math.cos(a) * ir * 0.5, z:o.z + Math.sin(a) * ir * 0.5, y:y, s:0.75, a:a, t:0.1 }); } });
   palmLine(12.2620, 12.2104, 1.22, 0.42); palmLine(12.2620, 12.2104, 2.05, 0.5); palmLine(12.2985, 12.2668, 1.15, 0.55);
   var keepClear = function(p){ for (var i = 0; i < KEEP.length; i++) if (Math.hypot(p.x - KEEP[i][0], p.z - KEEP[i][1]) < KEEP[i][2] * 0.8) return false; return true; };
   palms = palms.filter(keepClear);

@@ -42,6 +42,17 @@ const BRIDGES = ['Cầu Xóm Bóng', 'Cầu Trần Phú'];
       const ok = prog >= Math.min(path.length - 1, endIdx + 2); if (!ok) bad++;
       console.log((ok ? '✓ ' : '✗ ') + name + ' (tuyến ' + Math.round(L * 50) + ' m, đầu cầu bên kia ở mét ' + endIdx * 50 / 2 + '): tới mét ' + prog * 50 / 2 + (ok ? '' : ' — dừng' + (msg ? ': "' + msg + '"' : '')));
     } }
+  // đường lớn OSM phải được dựng liền: lấy điểm mỗi ~10 m trên đường OSM gốc, phải nằm trong lòng một đường đã dựng (ROADS_S)
+  const gap = await page.evaluate(() => { const segs = new Map(), key = (x, z) => Math.floor(x) + ',' + Math.floor(z);
+    __nt.ROADS_S.forEach(R => { if (R.rail) return; for (let i = 0; i < R.pts.length - 1; i++){ const a = R.pts[i], b = R.pts[i + 1], k = key(a.x, a.z); if (!segs.has(k)) segs.set(k, []); segs.get(k).push([a, b, R.w]); } });
+    let tot = 0, miss = 0; const where = {};
+    __nt.OSM.roads.forEach(R => { if (R.c > 4 || R.round) return; for (let i = 0; i < R.pts.length - 1; i++){ const a = R.pts[i], b = R.pts[i + 1], L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(L / 0.2));
+      for (let k = 0; k <= n; k++){ const x = a[0] + (b[0] - a[0]) * k / n, z = a[1] + (b[1] - a[1]) * k / n; if (!__nt.inBoard(x, z, 1.5) || __nt.G.hAt(x, z) < 0.05) continue; tot++; let ok = false;
+        for (let u = -1; u <= 1 && !ok; u++) for (let v = -1; v <= 1 && !ok; v++){ const L2 = segs.get((Math.floor(x) + u) + ',' + (Math.floor(z) + v)); if (L2) for (const [p, q, w] of L2){ const vx = q.x - p.x, vz = q.z - p.z, l = vx * vx + vz * vz || 1, t = Math.max(0, Math.min(1, ((x - p.x) * vx + (z - p.z) * vz) / l)); if (Math.hypot(x - p.x - vx * t, z - p.z - vz * t) < w / 2){ ok = true; break; } } }
+        if (!ok){ miss++; where[R.name || '?'] = (where[R.name || '?'] || 0) + 1; } } } });
+    return { tot, miss, top:Object.entries(where).sort((a, b) => b[1] - a[1]).slice(0, 6) }; });
+  const gp = gap.miss / Math.max(1, gap.tot), gok = gp < 0.003; if (!gok) bad++;
+  console.log((gok ? '✓ ' : '✗ ') + 'Đường lớn OSM dựng liền: hở ' + (gp * 100).toFixed(2) + '% (' + Math.round(gap.miss * 10) + ' m)' + (gok ? '' : ' — nhiều nhất: ' + gap.top.map(e => e[0] + ' ' + e[1] * 10 + ' m').join(', ')));
   if (errs.length){ console.log('Lỗi JS: ' + errs.join(' | ')); bad++; }
   await browser.close(); console.log(bad ? '[drive] ' + bad + ' lượt không qua được cầu' : '[drive] Qua được mọi cầu'); process.exit(bad ? 1 : 0);
 })();
