@@ -98,7 +98,7 @@ function genCrowd(n){
 }
 var crowdU = { uTime:{ value:0 }, uCam:{ value:new THREE.Vector3() }, uMap:{ value:null }, uLight:{ value:new THREE.Color(1.2, 1.2, 1.2) }, uFogColor:{ value:new THREE.Color() }, uFogNear:{ value:100 }, uFogFar:{ value:1000 } };
 function buildCrowd(){
-  var sheet = buildSpriteSheet(), tex = new THREE.CanvasTexture(sheet); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 4; crowdU.uMap.value = tex;
+  var sheet = buildSpriteSheet(), tex = new THREE.CanvasTexture(sheet); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; crowdU.uMap.value = tex;
   // Các hàng người mặc thường phục được thay bằng nhân vật Kenney vẽ sẵn (crowd-sheet.js); áo dài, nón lá, gánh hàng, người bơi giữ bản vẽ tay.
   // Ảnh giải mã bất đồng bộ nên lúc đầu vẫn hiện bản vẽ tay, xong thì chép đè.
   if (typeof CROWD_SHEET === 'string'){ var KROW = [0, 2, 3, 5, 6, 8, 9], im = new Image();
@@ -139,7 +139,7 @@ function buildCrowd(){
       '  vec4 c = texture2D(uMap, vUv); if (c.a < 0.5) discard;',
       '  gl_FragColor = vec4(mix(c.rgb * uLight, uFogColor, vFog), 1.0);',
       '  #include <tonemapping_fragment>',
-      '  #include <encodings_fragment>',
+      '  #include <colorspace_fragment>',
       '}'].join('\n') });
   var mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; scene.add(mesh); anim.crowd = { mesh:mesh, n:N, sheet:sheet };
 }

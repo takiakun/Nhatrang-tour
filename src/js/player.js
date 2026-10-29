@@ -60,7 +60,7 @@ function collide(p, rad){ var hit = false, ix = Math.floor(p.x), iz = Math.floor
   return hit; }
 
 function buildCharacter(){
-  var tex = new THREE.CanvasTexture(atlasCanvas()); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 4;
+  var tex = new THREE.CanvasTexture(atlasCanvas()); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
   var M = new THREE.MeshStandardMaterial({ map:tex, roughness:0.75 });
   function part(geo, r, faces){ var m = new THREE.Mesh(uvInto(geo, r, faces), M); m.castShadow = true; m.receiveShadow = true; return m; }
   var root = new THREE.Group(), body = new THREE.Group(); body.position.y = 1.2; root.add(body);

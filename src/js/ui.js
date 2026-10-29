@@ -289,7 +289,8 @@ function updateAnim(dt, ts){
   if (ring && ring.visible){ var k = ring.userData.r * (1 + 0.06 * Math.sin(ts * 3)); ring.scale.set(k, 1, k); }
 }
 
-var clock = new THREE.Clock();
+// THREE.Clock đã deprecated từ r183: đồng hồ tối giản (giây thực, getDelta, elapsedTime)
+var clock = { t0:performance.now(), last:performance.now(), elapsedTime:0, getDelta:function(){ var n = performance.now(), d = (n - this.last) / 1000; this.last = n; this.elapsedTime = (n - this.t0) / 1000; return d; } };
 /* ---------- định vị: "tôi đang ở đâu" (Geolocation, cần HTTPS; trong Claude artifact thường bị chặn) ---------- */
 var locBtn = document.getElementById('btnLocate'), locInfo = document.getElementById('locInfo'), locText = document.getElementById('locText');
 var LOC = { watch:null, marker:null, acc:null, x:0, z:0, first:true };
@@ -370,7 +371,7 @@ async function build(){
   var maxT = renderer.capabilities.maxTextureSize || 4096, TW = Math.min(LITE ? 2048 : 3072, maxT), TH = Math.round(TW * BD / BW);
   var gcv = document.createElement('canvas'); gcv.width = TW; gcv.height = TH; var gctx = gcv.getContext('2d'), img = gctx.createImageData(TW, TH);
   paintGround(img.data, TW, TH, G); gctx.putImageData(img, 0, 0); worldCtx(gctx, TW, TH); drawOverlays(gctx, false);
-  groundTex = new THREE.CanvasTexture(gcv); groundTex.encoding = THREE.sRGBEncoding; groundTex.flipY = false; groundTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  groundTex = new THREE.CanvasTexture(gcv); groundTex.colorSpace = THREE.SRGBColorSpace; groundTex.flipY = false; groundTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   initDetail(); terrain = buildTerrain(); water = buildWater(); buildSkirt();
   await step('Đang dựng phố xá…');
   var B = genBuildings(G, MK, LITE ? 0.55 : 1, RESORT_HOTELS); buildCity(B);
@@ -385,7 +386,13 @@ async function build(){
   setupLM(); setupUI(); setupPlay();
   initPost(); initWeather(); todTarget = tod = realTod(); applyTod(tod); syncTimeBtn();
   computeHome(); setCam(homeTarget, homeDist, HOME_PHI, HOME_TH); controls.update(); setSpin(!reduceMotion);
-  window.__nt = { PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return keys; }, G:G, B:B, T:T, ROADS_S:ROADS_S, RAIL_S:RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:controls, setCam:setCam, audio:AU, gov:GOV, lite:LITE, wx:WX, sunPos:sunPos, lmp:LMP, post:POST, scene:scene, OSM:OSM, inBoard:inBoard };
+  // Hook cho tools/shot.js và test: đặt thẳng camera, giờ, thời tiết (không chờ nội suy theo khung hình, mà trong SwiftShader mỗi khung mất vài giây)
+  window.__nt = { THREE:THREE, frames:function(){ return frameN; },
+    jump:function(t, r, phi, th){ tween = null; controls.enabled = true; controls.enableDamping = true; setCam(t, r, phi, th); controls.update(); shadowDirty = true; },
+    home:function(){ this.jump(homeTarget, homeDist, HOME_PHI, HOME_TH); },
+    setTod:function(n){ todUser = true; WX.real = false; todTarget = tod = n; applyTod(n); syncTimeBtn(); },
+    setWx:function(m){ WX.mode = m; syncWxBtn(); updateWeather(2, 0, 100); },
+    PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return keys; }, G:G, B:B, T:T, ROADS_S:ROADS_S, RAIL_S:RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:controls, setCam:setCam, audio:AU, gov:GOV, lite:LITE, wx:WX, sunPos:sunPos, lmp:LMP, post:POST, scene:scene, OSM:OSM, inBoard:inBoard };
   ready = true; loader.hidden = true; requestAnimationFrame(frame);
 }
 build().catch(function(e){ console.error(e); fail('Không dựng được bản đồ: ' + (e && e.message ? e.message : e)); });
