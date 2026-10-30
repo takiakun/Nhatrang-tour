@@ -1,8 +1,7 @@
-/* ======================= SCENE (three.js r147) ======================= */
+/* ======================= SCENE (three.js r186) ======================= */
 var errEl = document.getElementById('err'), loader = document.getElementById('loader'), loaderText = document.getElementById('loaderText');
 function fail(msg){ loader.hidden = true; errEl.textContent = msg; errEl.hidden = false; }
-if (!window.THREE || !THREE.OrbitControls){ fail('Không tải được thư viện 3D. Hãy kiểm tra kết nối mạng rồi tải lại trang.'); return; }
-if (THREE.ColorManagement) THREE.ColorManagement.legacyMode = false;
+if (!THREE || !THREE.OrbitControls){ fail('Không tải được thư viện 3D. Hãy kiểm tra kết nối mạng rồi tải lại trang.'); return; }
 
 var stage = document.getElementById('stage');
 var renderer;
@@ -17,11 +16,11 @@ var LITE = QP ? QP === 'lite' : (QSAVED === 'lite' || CORES <= 2 || (SMALL && CO
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, LITE || SMALL ? 1.5 : 1.75));
 renderer.setSize(innerWidth, innerHeight);
 renderer.setClearColor(0x000000, 0);
-renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;   // r186: PCFSoftShadowMap đã bỏ, PCFShadowMap đã mềm
 renderer.shadowMap.autoUpdate = false;
 stage.appendChild(renderer.domElement);
 var reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -29,8 +28,10 @@ var reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 var scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xd4eff2, 400, 1300);
 var camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.5, 4000);
-var hemi = new THREE.HemisphereLight(0xe3f6ff, 0x93a46a, 0.72); scene.add(hemi);
-var sun = new THREE.DirectionalLight(0xfff1d6, 1.35);
+// r155+ bỏ chế độ ánh sáng cũ (legacy), nơi cường độ bị nhân π: nhân LIGHT_K = π để giữ nguyên độ sáng đã chỉnh cho r147
+var LIGHT_K = Math.PI;
+var hemi = new THREE.HemisphereLight(0xe3f6ff, 0x93a46a, 0.72 * LIGHT_K); scene.add(hemi);
+var sun = new THREE.DirectionalLight(0xfff1d6, 1.35 * LIGHT_K);
 sun.castShadow = true;
 sun.shadow.mapSize.set(LITE || SMALL ? 1024 : 2048, LITE || SMALL ? 1024 : 2048);
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.035;
@@ -79,9 +80,10 @@ function modelGeo(id){ if (modelCache[id]) return modelCache[id];
   return (modelCache[id] = g); }
 // Vật liệu cho mô hình: màu đỉnh × màu từng căn (instanceColor), riêng phần mái (aMask) × màu mái (aRoof).
 // Pháp tuyến được scale lại trong modelGeo theo kích thước gốc nên chỉ cần scale instance theo đúng tỷ lệ đó.
+// r186: vColor luôn là vec4 nên gán vec4(rgb, 1)
 function kitMat(){ var m = glowMat('#ffffff', '#ffb35c', 0, 0.16); m.vertexColors = true; m.roughness = 0.78;
   m.onBeforeCompile = function(sh){ sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aMask;\nattribute vec3 aRoof;')
-    .replace('#include <color_vertex>', 'vColor = color * mix(instanceColor, aRoof, aMask);'); };
+    .replace('#include <color_vertex>', 'vColor = vec4(color * mix(instanceColor, aRoof, aMask), 1.0);'); };
   m.customProgramCacheKey = function(){ return 'kit'; };
   return m; }
 var KIT = null; function kit(){ return KIT || (KIT = kitMat()); }
@@ -206,7 +208,7 @@ function winTex(cols, rows, o){ var W = cols * 32, Hh = rows * 32, c1 = document
     if (o.balcony){ a.fillStyle = 'rgba(0,0,0,0.14)'; a.fillRect(x, y + o.my + o.wh + 2, 32, 3); }
     b.fillStyle = ih(i * 13 + cols, j * 7 + rows + o.seed) > 0.42 ? '#ffd38a' : '#060606'; b.fillRect(x + o.mx, y + o.my, 32 - 2 * o.mx, o.wh); }
   var t1 = new THREE.CanvasTexture(c1), t2 = new THREE.CanvasTexture(c2);
-  [t1, t2].forEach(function(t){ t.wrapS = t.wrapT = THREE.RepeatWrapping; t.encoding = THREE.sRGBEncoding; t.anisotropy = 4; });
+  [t1, t2].forEach(function(t){ t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; });
   return { map:t1, emis:t2 }; }
 function boxUV(uRep, vRep, blankSides){ var g = new THREE.BoxGeometry(1, 1, 1); g.translate(0, 0.5, 0); var uv = g.attributes.uv;
   for (var f = 0; f < 6; f++) for (var k = 0; k < 4; k++){ var i = f * 4 + k;
@@ -327,7 +329,7 @@ function buildTerrain(){
     sh.vertexShader = 'varying vec2 vWXZ;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvWXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
     sh.fragmentShader = 'uniform sampler2D uDetail;\nuniform vec4 uDBox;\nuniform float uDOn;\nvarying vec2 vWXZ;\n' + sh.fragmentShader.replace('#include <map_fragment>', [
       '#ifdef USE_MAP',
-      '  vec4 sampledDiffuseColor = texture2D( map, vUv );',
+      '  vec4 sampledDiffuseColor = texture2D( map, vMapUv );',
       '  vec2 dq = (vWXZ - uDBox.xy) / uDBox.zw;',
       '  if (uDOn > 0.5 && dq.x > 0.0 && dq.x < 1.0 && dq.y > 0.0 && dq.y < 1.0){',
       '    float de = min(min(dq.x, 1.0 - dq.x), min(dq.y, 1.0 - dq.y));',
@@ -342,7 +344,7 @@ var DU = { tex:{ value:null }, box:{ value:new THREE.Vector4(0, 0, 1, 1) }, on:{
 var DP = { size:LITE ? 26 : 34, res:LITE ? 768 : 1024, job:null, valid:false, cx:1e9, cz:1e9, textures:[], cur:0 };
 function initDetail(){
   for (var i = 0; i < 2; i++){ var c = document.createElement('canvas'); c.width = c.height = DP.res; var t = new THREE.CanvasTexture(c);
-    t.encoding = THREE.sRGBEncoding; t.flipY = false; t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy()); DP.textures.push({ c:c, t:t }); }
+    t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy()); DP.textures.push({ c:c, t:t }); }
   DU.tex.value = DP.textures[0].t; }
 function updateDetail(fx, fz, want){
   if (!want){ DU.on.value = 0; return; }
@@ -697,12 +699,12 @@ function applyTod(k){
   _t1.lerpColors(a.top, b.top, f); _t2.lerpColors(a.mid, b.mid, f); _t3.lerpColors(a.bot, b.bot, f);
   stage.style.background = 'linear-gradient(180deg,#' + _t1.getHexString() + ' 0%,#' + _t2.getHexString() + ' 55%,#' + _t3.getHexString() + ' 100%)';
   scene.fog.color.lerpColors(a.fog, b.fog, f);
-  hemi.color.lerpColors(a.hs, b.hs, f); hemi.groundColor.lerpColors(a.hg, b.hg, f); hemi.intensity = lerp(a.hi, b.hi, f);
-  sun.color.lerpColors(a.sun, b.sun, f); sun.intensity = lerp(a.si, b.si, f); sunDir.lerpVectors(a.sp, b.sp, f).normalize();
+  hemi.color.lerpColors(a.hs, b.hs, f); hemi.groundColor.lerpColors(a.hg, b.hg, f); hemi.intensity = lerp(a.hi, b.hi, f) * LIGHT_K;
+  sun.color.lerpColors(a.sun, b.sun, f); sun.intensity = lerp(a.si, b.si, f) * LIGHT_K; sunDir.lerpVectors(a.sp, b.sp, f).normalize();
   renderer.toneMappingExposure = lerp(a.exp, b.exp, f);
   if (waterU){ waterU.uShallow.value.lerpColors(a.sh, b.sh, f); waterU.uDeep.value.lerpColors(a.dp, b.dp, f); waterU.uFoam.value.lerpColors(a.foam, b.foam, f); waterU.uSky.value.lerpColors(a.sky, b.sky, f); }
   if (anim.cloudMat){ anim.cloudMat.color.lerpColors(a.cloud, b.cloud, f); anim.cloudMat.emissive.copy(anim.cloudMat.color); }
-  if (typeof crowdU !== 'undefined'){ var cl = crowdU.uLight.value; cl.copy(hemi.color).multiplyScalar(hemi.intensity * 0.95); _t1.copy(sun.color).multiplyScalar(sun.intensity * 0.45); cl.add(_t1); cl.r = Math.max(cl.r, 0.3); cl.g = Math.max(cl.g, 0.33); cl.b = Math.max(cl.b, 0.45); }
+  if (typeof crowdU !== 'undefined'){ var cl = crowdU.uLight.value; cl.copy(hemi.color).multiplyScalar(hemi.intensity / LIGHT_K * 0.95); _t1.copy(sun.color).multiplyScalar(sun.intensity / LIGHT_K * 0.45); cl.add(_t1); cl.r = Math.max(cl.r, 0.3); cl.g = Math.max(cl.g, 0.33); cl.b = Math.max(cl.b, 0.45); }
   var gk = lerp(a.glow, b.glow, f); glowMats.forEach(function(g){ g.m.emissiveIntensity = g.base + (g.peak - g.base) * gk; });
   lampK = lerp(a.lamp, b.lamp, f); if (lampPts){ lampPts.material.opacity = lampK; lampPts.visible = lampK > 0.01; } if (carPts){ carPts.material.opacity = lampK * 0.9; carPts.visible = lampK > 0.01; }
   if (typeof weatherLight === 'function') weatherLight();

@@ -1,18 +1,13 @@
 // Lái thử xe máy qua các cầu lớn (three.js thay bằng stub như smoke test, vật lý xe chạy thật):
 // đặt xe trước đầu cầu, giữ ga, xe phải sang tới đầu bên kia. Bắt các lỗi "cầu không đi được": khe nước ở đầu cầu,
 // bờ thấp bị coi là nước, mặt cầu đứt, vướng nhà. Dùng: node tests/drive-check.js
-const { chromium } = require('playwright'); const fs = require('fs'); const path = require('path');
+const { chromium } = require('playwright'); const { mount, DIST_TEST } = require('./serve');
 const BRIDGES = ['Cầu Xóm Bóng', 'Cầu Trần Phú'];
 (async () => {
-  const html = fs.readFileSync(path.join(__dirname, '../dist/index.html'), 'utf8'), stub = fs.readFileSync(path.join(__dirname, 'stub-three.js'), 'utf8');
   const browser = await chromium.launch(), page = await (await browser.newContext({ viewport:{ width:1200, height:800 } })).newPage(), errs = [];
   page.on('pageerror', e => errs.push(e.message));
-  await page.route('**/*', r => { const u = r.request().url();
-    if (u.includes('three.min.js')) return r.fulfill({ contentType:'application/javascript', body:stub });
-    if (u.includes('OrbitControls') || u.includes('GLTFLoader')) return r.fulfill({ contentType:'application/javascript', body:'' });
-    if (u.startsWith('http://local/')) return r.fulfill({ contentType:'text/html', body:html });
-    return r.abort(); });
-  await page.goto('http://local/'); await page.waitForFunction(() => window.__nt, null, { timeout:90000 });
+  await mount(page, DIST_TEST, { stub:true });
+  await page.goto('http://local/index.html'); await page.waitForFunction(() => window.__nt, null, { timeout:90000 });
   await page.click('#btnPlay'); await page.waitForTimeout(1500); await page.evaluate(() => __nt.toggleMount()); await page.waitForTimeout(300);
   let bad = 0;
   for (const name of BRIDGES){

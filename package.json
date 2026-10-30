@@ -2,16 +2,22 @@
   "name": "nha-trang-3d",
   "version": "0.5.0",
   "private": true,
-  "description": "Bản đồ 3D hoạt hình vịnh Nha Trang chạy trên web (three.js r147)",
+  "description": "Bản đồ 3D hoạt hình vịnh Nha Trang chạy trên web (three.js r186, Vite)",
   "scripts": {
-    "build": "node build.js",
-    "watch": "node build.js --watch",
-    "serve": "npx --yes http-server dist -p 8080 -c-1",
-    "test": "node build.js && node tests/map-check.js && node tests/smoke.js && node tests/drive-check.js",
+    "dev": "vite",
+    "build": "vite build",
+    "build:test": "vite build --mode test",
+    "build:single": "vite build --mode single",
+    "watch": "vite build --watch",
+    "serve": "vite preview",
+    "test": "vite build && vite build --mode test && node tests/map-check.js && node tests/smoke.js && node tests/drive-check.js",
     "check:map": "node tests/map-check.js && node tools/check-sizes.js"
   },
   "devDependencies": {
     "geotiff": "^2.1.3",
-    "playwright": "^1.47.0"
-  }
+    "three": "^0.186.1",
+    "vite": "^8.3.5",
+    "vite-plugin-singlefile": "^2.3.4"
+  },
+  "type": "commonjs"
 }

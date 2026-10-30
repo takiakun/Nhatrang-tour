@@ -1,8 +1,7 @@
 // Kiểm kích thước và hướng mô hình địa danh so với chân đế OSM: mở dist/index.html trong Chromium (WebGL qua SwiftShader),
 // đo khung bao của từng mô hình theo trục riêng của nó (bỏ góc quay, nhân tỷ lệ), so với hình chữ nhật bao nhỏ nhất của đối tượng OSM.
-// Dùng: node tools/check-sizes.js        (cần Playwright; không có mạng thì đặt THREE_DIR trỏ tới three r147: three.min.js,
-//        OrbitControls.js, GLTFLoader.js). Chạy node tools/check-positions.js trước để có .cache/osm-ref/.
-const fs = require('fs'), path = require('path'), { chromium } = require('playwright');
+// Dùng: node tools/check-sizes.js        (cần Playwright và bản dist/ thật: npm run build). Chạy node tools/check-positions.js trước để có .cache/osm-ref/.
+const fs = require("fs"), path = require("path"), { chromium } = require("playwright");
 const ROOT = path.join(__dirname, '..'), REF = path.join(ROOT, '.cache/osm-ref');
 // địa danh có chân đế công trình trong OSM (khu đất, quần thể thì không so): id mô hình -> mã OSM
 const ITEMS = { 'cho-dam':'relation/21159862', 'nha-tho':'way/162818208', 'tram-huong':'way/232454020', 'ga':'way/232457135', 'hon-chong':'way/792392852', pagoda:'way/196896036', 'hai-dang':'way/1241245408' };
@@ -15,15 +14,11 @@ function obb(ref){   // hình chữ nhật bao nhỏ nhất (m) và hướng tr�
   return best;
 }
 (async () => {
-  const html = fs.readFileSync(path.join(ROOT, 'dist/index.html'), 'utf8'), TD = process.env.THREE_DIR;
   const browser = await chromium.launch({ args:['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const page = await (await browser.newContext({ viewport:{ width:1100, height:720 } })).newPage();
-  await page.route('**/*', r => { const u = r.request().url();
-    if (u.startsWith('http://local/')) return r.fulfill({ contentType:'text/html', body:html });
-    if (TD && /three@0\.147\.0/.test(u)) return r.fulfill({ contentType:'application/javascript', body:fs.readFileSync(path.join(TD, path.basename(u))) });
-    return /cdn\.jsdelivr\.net\/npm\/three@0\.147\.0/.test(u) ? r.continue() : r.abort(); });
-  await page.goto('http://local/'); await page.waitForFunction(() => window.__nt, null, { timeout:240000 });
-  const got = await page.evaluate(ids => { const out = {}, T = window.THREE;
+  await require('../tests/serve').mount(page, path.join(ROOT, 'dist'));
+  await page.goto('http://local/index.html'); await page.waitForFunction(() => window.__nt, null, { timeout:240000 });
+  const got = await page.evaluate(ids => { const out = {}, T = __nt.THREE;
     __nt.scene.children.forEach(g => { const id = g.userData && g.userData.lmId; const key = id === 'long-son' && g.scale.x < 0.2 && !out.pagoda && g.rotation.y > 1 ? 'pagoda' : id; if (!ids.includes(key) || out[key]) return;
       const ry = g.rotation.y; g.rotation.y = 0; g.updateMatrixWorld(true); const b = new T.Box3().setFromObject(g); g.rotation.y = ry; g.updateMatrixWorld(true);
       const sx = (b.max.x - b.min.x) * 50, sz = (b.max.z - b.min.z) * 50;
