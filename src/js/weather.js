@@ -7,7 +7,7 @@ import { PLAY } from './player.js';
 // Chế độ "Giờ thật": vị trí mặt trời tính theo giờ hiện tại ở Nha Trang (công thức thiên văn rút gọn của NOAA),
 // từ đó chọn sáng / hoàng hôn / đêm và hướng nắng, bóng đổ. Thời tiết lấy từ Open-Meteo (miễn phí, không cần khoá):
 // mây, mưa, gió. Không tải được (ví dụ khi đăng làm Claude artifact, mạng bị chặn) thì trời quang, không có lỗi.
-ST.WX = { real:true, ok:false, cloud:0.3, rain:0, wind:3, temp:null, code:null, k:{ cloud:0.3, rain:0 }, next:0, sunEl:45, sunAz:120 };
+ST.WX = { real:true, ok:false, cloud:0.3, rain:0, wind:3, windDeg:null, temp:null, code:null, k:{ cloud:0.3, rain:0 }, next:0, sunEl:45, sunAz:120 };
 var WX_LAT = 12.24, WX_LON = 109.19;
 // chế độ thời tiết người dùng chọn: 'real' theo Open-Meteo, 'sun' trời nắng, 'rain' mưa (lưu trong localStorage)
 var WX_MODES = ['real', 'sun', 'rain'], WX_MODE_NAMES = { real:'Thời tiết thật', sun:'Trời nắng', rain:'Trời mưa' };
@@ -38,9 +38,9 @@ var WX_NAMES = { 0:'Trời quang', 1:'Ít mây', 2:'Mây rải rác', 3:'Nhiều
   80:'Mưa rào', 81:'Mưa rào', 82:'Mưa rào to', 95:'Dông', 96:'Dông', 99:'Dông' };
 function fetchWeather(){
   if (!window.fetch) return;
-  var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + WX_LAT + '&longitude=' + WX_LON + '&current=temperature_2m,cloud_cover,precipitation,rain,wind_speed_10m,weather_code&timezone=Asia%2FHo_Chi_Minh';
+  var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + WX_LAT + '&longitude=' + WX_LON + '&current=temperature_2m,cloud_cover,precipitation,rain,wind_speed_10m,wind_direction_10m,weather_code&timezone=Asia%2FHo_Chi_Minh';
   fetch(url).then(function(r){ return r.ok ? r.json() : null; }).then(function(j){ var c = j && j.current; if (!c) return;
-    ST.WX.ok = true; ST.WX.cloud = clamp((c.cloud_cover || 0) / 100, 0, 1); ST.WX.rain = clamp((c.precipitation || c.rain || 0) / 4, 0, 1); ST.WX.wind = c.wind_speed_10m || 0; ST.WX.temp = c.temperature_2m; ST.WX.code = c.weather_code;
+    ST.WX.ok = true; ST.WX.cloud = clamp((c.cloud_cover || 0) / 100, 0, 1); ST.WX.rain = clamp((c.precipitation || c.rain || 0) / 4, 0, 1); ST.WX.wind = c.wind_speed_10m || 0; ST.WX.windDeg = c.wind_direction_10m == null ? null : c.wind_direction_10m; ST.WX.temp = c.temperature_2m; ST.WX.code = c.weather_code;
     if (ST.WX.rain === 0 && ST.WX.code >= 51 && ST.WX.code <= 99 && ST.WX.code !== 71) ST.WX.rain = 0.25;
     syncWeatherChip(); }).catch(function(){});
 }

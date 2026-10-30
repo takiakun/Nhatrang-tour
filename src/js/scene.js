@@ -221,7 +221,7 @@ function boxUV(uRep, vRep, blankSides){ var g = new THREE.BoxGeometry(1, 1, 1); 
 function bmat(t, peak){ var m = new THREE.MeshStandardMaterial({ color:'#ffffff', map:t.map, emissiveMap:t.emis, emissive:'#ffffff', emissiveIntensity:0, roughness:0.75 }); glowMats.push({ m:m, base:0, peak:peak }); return m; }
 
 /* ======================= BUILD ======================= */
-/* trong ST: G, groundTex, terrain, water, MK, ring */ var waterU; ST.ROADS_S = []; ST.RAIL_S = null; var KEEP = []; var LM = []; var LMI = {}; var pickGroups = []; var anim = { boats:[], movers:[], gondolas:[], birds:null, clouds:[], wheel:null, train:null, parasail:null, vehicles:null };
+/* trong ST: G, groundTex, terrain, water, MK, ring */ ST.ROADS_S = []; ST.RAIL_S = null; var KEEP = []; var LM = []; var LMI = {}; var pickGroups = []; var anim = { boats:[], movers:[], gondolas:[], birds:null, clouds:[], wheel:null, train:null, parasail:null, vehicles:null };
 var lampPts; var carPts;
 function step(msg){ loaderText.textContent = msg; return new Promise(function(r){ setTimeout(r, 20); }); }
 function hAt(x, z){ return ST.G.hAt(x, z); }
@@ -368,51 +368,6 @@ function perimeter(stepL){ var pts = [], C = [[BX1 - BR, BZ0 + BR, -Math.PI / 2]
   for (var s = 0; s < 4; s++){ var l = L[s], n = Math.ceil(Math.hypot(l[2] - l[0], l[3] - l[1]) / stepL); for (var k = 0; k < n; k++) pts.push([l[0] + (l[2] - l[0]) * k / n, l[1] + (l[3] - l[1]) * k / n]);
     var c = C[s]; for (k = 0; k < 10; k++){ var a = c[2] + k / 10 * Math.PI / 2; pts.push([c[0] + Math.cos(a) * BR, c[1] + Math.sin(a) * BR]); } }
   return pts; }
-
-function buildWater(){
-  var GX = ST.G.GX, GZ = ST.G.GZ, data = new Uint8Array(GX * GZ * 4);
-  for (var k = 0; k < GX * GZ; k++){ data[k * 4] = clamp(((-ST.G.h[k]) + 1) / 7, 0, 1) * 255; data[k * 4 + 1] = ST.G.sea[k] * 255; data[k * 4 + 2] = 0; data[k * 4 + 3] = 255; }
-  var dt = new THREE.DataTexture(data, GX, GZ, THREE.RGBAFormat); dt.magFilter = THREE.LinearFilter; dt.minFilter = THREE.LinearFilter; dt.generateMipmaps = false; dt.needsUpdate = true;
-  waterU = { uTime:{ value:0 }, uDepth:{ value:dt }, uBox:{ value:new THREE.Vector4(BX0, BZ0, BW, BD) }, uGrid:{ value:new THREE.Vector2(GX, GZ) },
-    uShallow:{ value:new THREE.Color('#3fc8cf') }, uDeep:{ value:new THREE.Color('#0f5f8c') }, uFoam:{ value:new THREE.Color('#ffffff') }, uSky:{ value:new THREE.Color('#bfe6f5') } };
-  var wm = new THREE.MeshStandardMaterial({ color:'#ffffff', transparent:true, roughness:0.14, metalness:0.0 });
-  wm.onBeforeCompile = function(sh){
-    for (var key in waterU) sh.uniforms[key] = waterU[key];
-    sh.vertexShader = 'varying vec3 vWPos;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-    sh.fragmentShader = 'uniform float uTime;\nuniform sampler2D uDepth;\nuniform vec4 uBox;\nuniform vec2 uGrid;\nuniform vec3 uShallow;\nuniform vec3 uDeep;\nuniform vec3 uFoam;\nuniform vec3 uSky;\nvarying vec3 vWPos;\n' + sh.fragmentShader
-      .replace('#include <color_fragment>', [
-        '#include <color_fragment>',
-        'vec2 gq = vec2((vWPos.x - uBox.x) / uBox.z, (vWPos.z - uBox.y) / uBox.w) * (uGrid - 1.0);',
-        'vec4 dt = texture2D(uDepth, (gq + 0.5) / uGrid);',
-        'float dep = dt.r * 7.0 - 1.0;',
-        'float sea = dt.g;',
-        'diffuseColor.rgb = mix(uShallow, uDeep, smoothstep(0.1, 3.4, dep));',
-        'diffuseColor.a = mix(0.32, 0.94, smoothstep(0.0, 2.4, dep));',
-        'float fw = 0.32 + 0.12 * sin(uTime * 1.2 + vWPos.x * 0.5 + vWPos.z * 0.37);',
-        'float foam = (1.0 - smoothstep(fw * 0.35, fw, dep)) * step(-0.02, dep);',
-        'float lines = smoothstep(0.82, 0.97, sin(dep * 16.0 - uTime * 2.1)) * (1.0 - smoothstep(0.15, 0.75, dep)) * step(0.0, dep);',
-        'foam = clamp(foam + lines * 0.7, 0.0, 1.0) * mix(0.25, 1.0, sea);',
-        'vec3 vd = normalize(cameraPosition - vWPos);',
-        'float fres = pow(1.0 - clamp(vd.y, 0.0, 1.0), 3.0);',
-        'diffuseColor.rgb = mix(diffuseColor.rgb, uSky, fres * 0.55);',
-        'diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, foam * 0.85);',
-        'diffuseColor.a = max(diffuseColor.a, foam * 0.9);'
-      ].join('\n'))
-      .replace('#include <normal_fragment_begin>', [
-        '#include <normal_fragment_begin>',
-        '{ float wk = 1.0 - smoothstep(20.0, 140.0, length(vWPos - cameraPosition));',
-        '  vec2 p = vWPos.xz; float t = uTime; vec2 g = vec2(0.0);',
-        '  g += 0.035 * 1.7 * cos(dot(p, vec2(0.83, 0.55)) * 1.7 + t * 1.3) * vec2(0.83, 0.55);',
-        '  g += 0.028 * 2.6 * cos(dot(p, vec2(-0.42, 0.91)) * 2.6 + t * 1.7) * vec2(-0.42, 0.91);',
-        '  g += 0.018 * 4.1 * cos(dot(p, vec2(0.97, -0.25)) * 4.1 + t * 2.3) * vec2(0.97, -0.25);',
-        '  g += 0.012 * 6.3 * cos(dot(p, vec2(-0.7, -0.71)) * 6.3 + t * 2.9) * vec2(-0.7, -0.71);',
-        '  vec3 wn = normalize(vec3(-g.x * wk, 1.0, -g.y * wk));',
-        '  normal = normalize((viewMatrix * vec4(wn, 0.0)).xyz); }'
-      ].join('\n'));
-  };
-  var per = perimeter(3), shape = new THREE.Shape(per.map(function(p){ return new THREE.Vector2(p[0], -p[1]); }));
-  var g = new THREE.ShapeGeometry(shape, 1); g.rotateX(-Math.PI / 2);
-  var m = new THREE.Mesh(g, wm); m.receiveShadow = true; m.renderOrder = 2; scene.add(m); return m; }
 
 function buildSkirt(){
   var per = perimeter(1.2); per.push(per[0]);
@@ -706,7 +661,7 @@ function applyTod(k){
   hemi.color.lerpColors(a.hs, b.hs, f); hemi.groundColor.lerpColors(a.hg, b.hg, f); hemi.intensity = lerp(a.hi, b.hi, f) * LIGHT_K;
   sun.color.lerpColors(a.sun, b.sun, f); sun.intensity = lerp(a.si, b.si, f) * LIGHT_K; sunDir.lerpVectors(a.sp, b.sp, f).normalize();
   renderer.toneMappingExposure = lerp(a.exp, b.exp, f);
-  if (waterU){ waterU.uShallow.value.lerpColors(a.sh, b.sh, f); waterU.uDeep.value.lerpColors(a.dp, b.dp, f); waterU.uFoam.value.lerpColors(a.foam, b.foam, f); waterU.uSky.value.lerpColors(a.sky, b.sky, f); }
+  if (typeof ST.oceanTod === 'function') ST.oceanTod(a, b, f);   // màu biển theo giờ (ocean.js)
   if (anim.cloudMat){ anim.cloudMat.color.lerpColors(a.cloud, b.cloud, f); anim.cloudMat.emissive.copy(anim.cloudMat.color); }
   if (typeof ST.crowdU !== 'undefined'){ var cl = ST.crowdU.uLight.value; cl.copy(hemi.color).multiplyScalar(hemi.intensity / LIGHT_K * 0.95); _t1.copy(sun.color).multiplyScalar(sun.intensity / LIGHT_K * 0.45); cl.add(_t1); cl.r = Math.max(cl.r, 0.3); cl.g = Math.max(cl.g, 0.33); cl.b = Math.max(cl.b, 0.45); }
   var gk = lerp(a.glow, b.glow, f); glowMats.forEach(function(g){ g.m.emissiveIntensity = g.base + (g.peak - g.base) * gk; });
@@ -715,4 +670,4 @@ function applyTod(k){
   ST.shadowDirty = true;
 }
 
-export { DP, JETTIES, LITE, LM, LMI, LMP, RESORT_HOTELS, SC, _d, anim, applyTod, b64arr, box, buildBoats, buildBridges, buildCable, buildCity, buildLamps, buildLandmarks, buildResort, buildSkirt, buildSky, buildTerrain, buildTraffic, buildVegetation, buildWater, camera, carPts, cyl, drawOverlays, fail, glowMat, gy, hemi, initDetail, lampK, loader, mat, osmMajorRoads, pickGroups, radialTex, reduceMotion, renderer, roadPoint, sampleRoad, scene, stage, step, sun, sunDir, updateDetail, waterU };
+export { DP, JETTIES, LITE, LM, LMI, LMP, RESORT_HOTELS, SC, _d, anim, applyTod, b64arr, box, buildBoats, buildBridges, buildCable, buildCity, buildLamps, buildLandmarks, buildResort, buildSkirt, buildSky, buildTerrain, buildTraffic, buildVegetation, camera, carPts, cyl, drawOverlays, fail, glowMat, gy, hemi, initDetail, lampK, loader, mat, osmMajorRoads, pickGroups, radialTex, reduceMotion, renderer, roadPoint, sampleRoad, scene, stage, step, sun, sunDir, updateDetail };

@@ -1,11 +1,13 @@
 import { THREE } from './three.js';
 import { ST } from '../state.js';
 import { BD, BW, BX0, BX1, BZ0, BZ1, GEO_LABELS, LM_DEF, OSM, P, RAIL, ROADS, ROAD_LABELS, boardClamp, buildGrid, clamp, coastX, genBuildings, genTrees, inBoard, islandAt, lerp, paintGround, segD2, toLL, worldCtx } from './geo.js';
-import { DP, LITE, LM, LMI, LMP, RESORT_HOTELS, SC, _d, anim, applyTod, buildBoats, buildBridges, buildCable, buildCity, buildLamps, buildLandmarks, buildResort, buildSkirt, buildSky, buildTerrain, buildTraffic, buildVegetation, buildWater, camera, carPts, drawOverlays, fail, gy, initDetail, lampK, loader, osmMajorRoads, pickGroups, reduceMotion, renderer, roadPoint, sampleRoad, scene, stage, step, sun, sunDir, updateDetail, waterU } from './scene.js';
+import { DP, LITE, LM, LMI, LMP, RESORT_HOTELS, SC, _d, anim, applyTod, buildBoats, buildBridges, buildCable, buildCity, buildLamps, buildLandmarks, buildResort, buildSkirt, buildSky, buildTerrain, buildTraffic, buildVegetation, camera, carPts, drawOverlays, fail, gy, initDetail, lampK, loader, osmMajorRoads, pickGroups, reduceMotion, renderer, roadPoint, sampleRoad, scene, stage, step, sun, sunDir, updateDetail } from './scene.js';
 import { buildCrowd } from './crowd.js';
 import { PL, PLAY, buildPlayer, followCamera, joy, syncPlayBtns, teleportTo, toggleMount, updatePlayer } from './player.js';
 import { AU, armAudio, honk, setSound, syncSoundBtn, updateAudio } from './audio.js';
 import { initWeather, realTod, sunPos, syncWxBtn, updateWeather } from './weather.js';
+import { buildOcean, setWind, updateOcean } from './ocean.js';
+import { depthFade, waveHeightAt, waveNormalAt, windState } from './ocean-waves.js';
 import { POST, initPost, renderFrame, resizePost } from './post.js';
 /* ======================= CONTROLS, UI, LOOP ======================= */
 var ready = false; ST.shadowDirty = true; var frameN = 0;
@@ -264,14 +266,18 @@ function setupPlay(){
 
 /* ---------- animation ---------- */
 var vp = { x:0, y:0, z:0, fx:0, fz:0 }, _v3 = new THREE.Vector3(), _tan = new THREE.Vector3();
+// đặt vật nổi lên mặt sóng: cao theo sóng, nghiêng theo pháp tuyến sóng (follow = mức nghiêng theo, vật lớn thì nhỏ), quay theo hướng yaw
+var _qN = new THREE.Quaternion(), _qY = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0), _nv = new THREE.Vector3();
+function seaPose(o, x, z, yaw, drop, follow){ var n = waveNormalAt(x, z); _nv.set(n[0] * follow, 1, n[2] * follow).normalize();
+  _qY.setFromAxisAngle(_up, yaw); o.quaternion.setFromUnitVectors(_up, _nv).multiply(_qY); o.position.set(x, drop + waveHeightAt(x, z), z); }
 function updateAnim(dt, ts){
   var i, b;
-  if (anim.hullIM && frameN % 2 === 0){ for (i = 0; i < anim.boats.length; i++){ b = anim.boats[i]; _d.position.set(b.x, -0.035 + 0.025 * Math.sin(ts * 1.8 + b.ph), b.z); _d.rotation.set(0.04 * Math.sin(ts * 1.3 + b.ph), b.r, 0.05 * Math.sin(ts * 1.6 + b.ph)); _d.scale.copy(anim.hullK); _d.updateMatrix(); anim.hullIM.setMatrixAt(i, _d.matrix); }
+  if (anim.hullIM && frameN % 2 === 0){ for (i = 0; i < anim.boats.length; i++){ b = anim.boats[i]; seaPose(_d, b.x, b.z, b.r, -0.035, 0.8); _d.scale.copy(anim.hullK); _d.updateMatrix(); anim.hullIM.setMatrixAt(i, _d.matrix); }
     anim.hullIM.instanceMatrix.needsUpdate = true; }
   anim.movers.forEach(function(m){ m.t += dt * m.sp / m.len; var u, sgn = 1;
     if (m.loop) u = ((m.t % 1) + 1) % 1; else { var q = ((m.t % 2) + 2) % 2; u = q < 1 ? q : 2 - q; sgn = q < 1 ? 1 : -1; }
     m.curve.getPointAt(u, _v3); m.curve.getTangentAt(u, _tan); _tan.multiplyScalar(sgn);
-    m.g.position.set(_v3.x, -0.03 + 0.03 * Math.sin(ts * 2 + m.len), _v3.z); m.g.rotation.set(0, Math.atan2(-_tan.x, -_tan.z), 0.03 * Math.sin(ts * 1.7)); });
+    seaPose(m.g, _v3.x, _v3.z, Math.atan2(-_tan.x, -_tan.z), -0.03, 0.45); });
   anim.gondolas.forEach(function(g){ var u = (ts * 0.012 + g.userData.off) % 1; if (g.userData.dir < 0) u = 1 - u; g.userData.curve.getPointAt(u, _v3); g.position.copy(_v3); g.userData.curve.getTangentAt(u, _tan); g.rotation.y = Math.atan2(_tan.x, _tan.z); });
   if (anim.wheel){ anim.wheel.w.rotation.z = ts * 0.1; anim.wheel.cabins.forEach(function(c){ c.rotation.z = -anim.wheel.w.rotation.z; }); }
   var V = anim.vehicles;
@@ -341,7 +347,7 @@ function updateLocate(dist, ts){ if (!LOC.marker || !LOC.marker.visible) return;
 function frame(now){
   requestAnimationFrame(frame);
   var rawDt = clock.getDelta(), dt = Math.min(rawDt, 0.05), ts = clock.elapsedTime * (reduceMotion ? 0.3 : 1); frameN++;
-  if (waterU) waterU.uTime.value = ts;
+  updateOcean(dt * (reduceMotion ? 0.3 : 1));
   if (Math.abs(ST.tod - ST.todTarget) > 0.003){ ST.tod += (ST.todTarget - ST.tod) * Math.min(1, dt * 2.2); applyTod(ST.tod); } else if (ST.tod !== ST.todTarget){ ST.tod = ST.todTarget; applyTod(ST.tod); }
   updateAnim(dt * (reduceMotion ? 0.3 : 1), ts);
   ST.crowdU.uTime.value = ts; ST.crowdU.uCam.value.copy(camera.position); ST.crowdU.uFogColor.value.copy(scene.fog.color); ST.crowdU.uFogNear.value = scene.fog.near; ST.crowdU.uFogFar.value = scene.fog.far;
@@ -381,7 +387,7 @@ async function build(){
   var gcv = document.createElement('canvas'); gcv.width = TW; gcv.height = TH; var gctx = gcv.getContext('2d'), img = gctx.createImageData(TW, TH);
   paintGround(img.data, TW, TH, ST.G); gctx.putImageData(img, 0, 0); worldCtx(gctx, TW, TH); drawOverlays(gctx, false);
   ST.groundTex = new THREE.CanvasTexture(gcv); ST.groundTex.colorSpace = THREE.SRGBColorSpace; ST.groundTex.flipY = false; ST.groundTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-  initDetail(); ST.terrain = buildTerrain(); ST.water = buildWater(); buildSkirt();
+  initDetail(); ST.terrain = buildTerrain(); ST.water = buildOcean(); scene.add(ST.water); buildSkirt();
   await step('Đang dựng phố xá…');
   var B = genBuildings(ST.G, ST.MK, LITE ? 0.55 : 1, RESORT_HOTELS); buildCity(B);
   buildLandmarks(); buildCable(); buildResort(); var bl = buildBridges();
@@ -401,7 +407,7 @@ async function build(){
     home:function(){ this.jump(homeTarget, homeDist, HOME_PHI, HOME_TH); },
     setTod:function(n){ ST.todUser = true; ST.WX.real = false; ST.todTarget = ST.tod = n; applyTod(n); syncTimeBtn(); },
     setWx:function(m){ ST.WX.mode = m; syncWxBtn(); updateWeather(2, 0, 100); },
-    GOV:ST.GOV, PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return ST.keys; }, G:ST.G, B:B, T:T, ROADS_S:ST.ROADS_S, RAIL_S:ST.RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:ST.controls, setCam:setCam, audio:AU, gov:ST.GOV, lite:LITE, wx:ST.WX, sunPos:sunPos, lmp:LMP, post:POST, scene:scene, OSM:OSM, inBoard:inBoard };
+    GOV:ST.GOV, setWind:setWind, waves:{ heightAt:waveHeightAt, normalAt:waveNormalAt, windState:windState, depthFade:depthFade }, PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return ST.keys; }, G:ST.G, B:B, T:T, ROADS_S:ST.ROADS_S, RAIL_S:ST.RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:ST.controls, setCam:setCam, audio:AU, gov:ST.GOV, lite:LITE, wx:ST.WX, sunPos:sunPos, lmp:LMP, post:POST, scene:scene, OSM:OSM, inBoard:inBoard };
   ready = true; loader.hidden = true; requestAnimationFrame(frame);
 }
 build().catch(function(e){ console.error(e); fail('Không dựng được bản đồ: ' + (e && e.message ? e.message : e)); });

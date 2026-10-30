@@ -11,5 +11,7 @@ import './js/character.js';
 import './js/player.js';
 import './js/audio.js';
 import './js/weather.js';
+import './js/ocean-waves.js';
+import './js/ocean.js';
 import './js/post.js';
 import './js/ui.js';

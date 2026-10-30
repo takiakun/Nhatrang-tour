@@ -1,4 +1,5 @@
 import { ST } from '../state.js';
+import { OC } from './ocean-waves.js';
 import { DIST, clamp } from './geo.js';
 import { anim, roadPoint } from './scene.js';
 import { PL, PLAY, groundAt } from './player.js';
@@ -97,8 +98,8 @@ function updateAudio(dt, dist){
   var shore = clamp(E.water * (1 - E.water) * 4.2, 0, 1), sea = clamp(shore * 0.85 + E.water * 0.3, 0, 1);
   if (play && PL.mode === 'swim') sea = 1;
   function set(g, v){ g.gain.setTargetAtTime(v, t, 0.4); }
-  set(L.sea, (0.12 + 0.75 * sea * near + 0.18 * high) * 0.55);
-  set(L.wind, (0.05 + 0.3 * high + 0.25 * E.wild * near + (play && PL.mode === 'bike' ? clamp(Math.abs(PL.bike.speed) / 2.4, 0, 1) * 0.25 : 0)) * (0.8 + clamp(ST.WX.wind / 25, 0, 1.2)));  // gió thật (km/h) làm gió to nhỏ
+  set(L.sea, (0.12 + 0.75 * sea * near + 0.18 * high) * 0.55 * (0.7 + 0.55 * clamp(OC.kmh / 32, 0, 1.3)));   // sóng ồn hơn khi gió mạnh
+  set(L.wind, (0.05 + 0.3 * high + 0.25 * E.wild * near + (play && PL.mode === 'bike' ? clamp(Math.abs(PL.bike.speed) / 2.4, 0, 1) * 0.25 : 0)) * (0.8 + clamp(OC.kmh / 25, 0, 1.2)));  // gió (km/h; thật hoặc theo chế độ thời tiết) làm gió to nhỏ
   set(L.city, E.city * near * (0.5 - 0.3 * night) * 0.6);
   set(L.night, night * (0.03 + 0.08 * (1 - E.city) * near) * (1 - ST.WX.k.rain));
   set(L.rain, ST.WX.k.rain * (0.15 + 0.35 * near));
