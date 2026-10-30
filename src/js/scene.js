@@ -1,12 +1,16 @@
+import { THREE } from './three.js';
+import { ST } from '../state.js';
+import { BD, BR, BW, BX0, BX1, BZ0, BZ1, DIST, FLOOR, H, ISLANDS, LLs, LM_DEF, LM_EXTRA, OSM, P, RAIL, ROUNDS, TOWER_F, TUBE_F, VB, boardClamp, clamp, coastX, fillPoly, ih, inBoard, landRuns, lerp, mulberry32, paintGround, resample, roundD, segD2, smooth, strokeLine, toLocal, toWorld, worldCtx } from './geo.js';
+import { MODEL_DATA } from './models.js';
 /* ======================= SCENE (three.js r186) ======================= */
 var errEl = document.getElementById('err'), loader = document.getElementById('loader'), loaderText = document.getElementById('loaderText');
 function fail(msg){ loader.hidden = true; errEl.textContent = msg; errEl.hidden = false; }
-if (!THREE || !THREE.OrbitControls){ fail('Không tải được thư viện 3D. Hãy kiểm tra kết nối mạng rồi tải lại trang.'); return; }
+if (!THREE || !THREE.OrbitControls){ fail('Không tải được thư viện 3D. Hãy kiểm tra kết nối mạng rồi tải lại trang.'); throw new Error('nt-stop'); }
 
 var stage = document.getElementById('stage');
 var renderer;
 try { renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true, powerPreference:'high-performance' }); }
-catch (e){ fail('Trình duyệt này chưa bật WebGL nên không hiển thị được bản đồ 3D. Hãy thử Chrome, Safari hoặc Firefox bản mới.'); return; }
+catch (e){ fail('Trình duyệt này chưa bật WebGL nên không hiển thị được bản đồ 3D. Hãy thử Chrome, Safari hoặc Firefox bản mới.'); throw new Error('nt-stop'); }
 // Chất lượng: LITE = giảm mật độ thế giới (nhà, cây, người, xe) lúc dựng; SMALL = màn hình nhỏ, giảm độ phân giải, bóng.
 // Điện thoại mạnh (≥ 6 nhân, hoặc iPhone màn hình dpr 3) vẫn dựng bản đầy đủ; nếu chạy không nổi, bộ điều tốc trong ui.js
 // tự hạ chất lượng và ghi nhớ để lần sau dựng bản LITE. Ép bằng ?q=lite hoặc ?q=full.
@@ -217,11 +221,11 @@ function boxUV(uRep, vRep, blankSides){ var g = new THREE.BoxGeometry(1, 1, 1); 
 function bmat(t, peak){ var m = new THREE.MeshStandardMaterial({ color:'#ffffff', map:t.map, emissiveMap:t.emis, emissive:'#ffffff', emissiveIntensity:0, roughness:0.75 }); glowMats.push({ m:m, base:0, peak:peak }); return m; }
 
 /* ======================= BUILD ======================= */
-var G, groundTex, terrain, water, waterU, ROADS_S = [], RAIL_S = null, MK, KEEP = [], LM = [], LMI = {}, pickGroups = [], anim = { boats:[], movers:[], gondolas:[], birds:null, clouds:[], wheel:null, train:null, parasail:null, vehicles:null };
-var lampPts, carPts, ring;
+/* trong ST: G, groundTex, terrain, water, MK, ring */ var waterU; ST.ROADS_S = []; ST.RAIL_S = null; var KEEP = []; var LM = []; var LMI = {}; var pickGroups = []; var anim = { boats:[], movers:[], gondolas:[], birds:null, clouds:[], wheel:null, train:null, parasail:null, vehicles:null };
+var lampPts; var carPts;
 function step(msg){ loaderText.textContent = msg; return new Promise(function(r){ setTimeout(r, 20); }); }
-function hAt(x, z){ return G.hAt(x, z); }
-function gy(x, z){ return Math.max(G.hAt(x, z), 0); }
+function hAt(x, z){ return ST.G.hAt(x, z); }
+function gy(x, z){ return Math.max(ST.G.hAt(x, z), 0); }
 
 // lấy mẫu đều, bước ≤ 0,5 vừa khít chiều dài (giữ đủ hai đầu; đường ngắn hơn 25 m vẫn có ít nhất 2 điểm — trước đây bị bỏ, đường lớn đứt quãng)
 function sampleRoad(pts, w, rail){ var Lt = 0; for (var q = 0; q < pts.length - 1; q++) Lt += Math.hypot(pts[q + 1][0] - pts[q][0], pts[q + 1][1] - pts[q][1]);
@@ -231,7 +235,7 @@ function sampleRoad(pts, w, rail){ var Lt = 0; for (var q = 0; q < pts.length - 
   var best = [], cur = []; raw.forEach(function(p){ if (p) cur.push(p); else { if (cur.length > best.length) best = cur; cur = []; } }); if (cur.length > best.length) best = cur;
   var out = best; out.forEach(function(o, i){ o.br = o.h < 0.16; });
   var br2 = out.map(function(o, i){ return o.br || (out[i - 1] && out[i - 1].br) || (out[i + 1] && out[i + 1].br) || (out[i - 2] && out[i - 2].br) || (out[i + 2] && out[i + 2].br); });
-  out.forEach(function(o, i){ o.br = br2[i]; o.y0 = o.br ? 0.66 : G.hAt(o.x, o.z) + 0.015; });
+  out.forEach(function(o, i){ o.br = br2[i]; o.y0 = o.br ? 0.66 : ST.G.hAt(o.x, o.z) + 0.015; });
   out.forEach(function(o, i){ var sum = 0, n = 0; for (var k = -2; k <= 2; k++){ var q = out[i + k]; if (q){ sum += q.y0; n++; } } o.y = o.br ? Math.max(0.66, sum / n) : sum / n; });
   for (i = 0; i < out.length; i++){ var a = out[Math.max(0, i - 1)], b = out[Math.min(out.length - 1, i + 1)], dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1; out[i].fx = dx / l; out[i].fz = dz / l; }
   return { pts:out, w:w, rail:!!rail, step:step, L:(out.length - 1) * step }; }
@@ -245,15 +249,15 @@ function osmMajorRoads(){ var out = [], bEnds = {}, ek = function(q){ return Mat
     if (Rd.c > 4){ OSM_MINOR.push(Rd); return; }
     var S = sampleRoad(Rd.pts, Rd.w); if (S.pts.length < 2) return; S.name = Rd.name; S.cls = Rd.c;
     if (Rd.bridge){   // cầu OSM: mặt cầu suốt cả đường, hai đầu dốc từ mặt đất lên (không cụt giữa không trung)
-      var Q = S.pts, n = Q.length, ramp = Math.min(2.4, (n - 1) * S.step * 0.34), gA = Math.max(G.hAt(Q[0].x, Q[0].z), 0) + 0.015, gB = Math.max(G.hAt(Q[n - 1].x, Q[n - 1].z), 0) + 0.015;
+      var Q = S.pts, n = Q.length, ramp = Math.min(2.4, (n - 1) * S.step * 0.34), gA = Math.max(ST.G.hAt(Q[0].x, Q[0].z), 0) + 0.015, gB = Math.max(ST.G.hAt(Q[n - 1].x, Q[n - 1].z), 0) + 0.015;
       // đầu cầu trên mặt nước mà nối tiếp đoạn cầu khác thì giữ độ cao; đầu trên đất luôn dốc xuống (kể cả chỗ hai đường một chiều nhập lại)
-      if (bEnds[ek(Rd.pts[0])] > 1 && G.hAt(Q[0].x, Q[0].z) < 0.05) gA = Math.max(0.66, gA); if (bEnds[ek(Rd.pts[Rd.pts.length - 1])] > 1 && G.hAt(Q[n - 1].x, Q[n - 1].z) < 0.05) gB = Math.max(0.66, gB);
-      Q.forEach(function(p, i){ var sA = i * S.step, sB = (n - 1 - i) * S.step, top = Math.max(0.66, gA, gB), g = Math.max(G.hAt(p.x, p.z), 0) + 0.015;
+      if (bEnds[ek(Rd.pts[0])] > 1 && ST.G.hAt(Q[0].x, Q[0].z) < 0.05) gA = Math.max(0.66, gA); if (bEnds[ek(Rd.pts[Rd.pts.length - 1])] > 1 && ST.G.hAt(Q[n - 1].x, Q[n - 1].z) < 0.05) gB = Math.max(0.66, gB);
+      Q.forEach(function(p, i){ var sA = i * S.step, sB = (n - 1 - i) * S.step, top = Math.max(0.66, gA, gB), g = Math.max(ST.G.hAt(p.x, p.z), 0) + 0.015;
         var y = sA < sB ? lerp(gA, top, smooth(0, ramp, sA)) : lerp(gB, top, smooth(0, ramp, sB)); p.br = true; p.y = Math.max(y, g); });
       out.push(S); return; }
     // đường thường (không phải cầu OSM) đi qua chỗ thấp sát nước (cù lao, bờ sông, bờ đê): giữ thành đường đắp có mặt đường cho xe chạy,
     // không cắt bỏ (trước đây cắt thì giữa cầu Xóm Bóng trên cù lao mất mặt đường, xe bị chặn "dưới nước")
-    S.pts.forEach(function(p){ if (p.br){ p.br = false; p.cw = true; p.y = Math.max(G.hAt(p.x, p.z), 0.04) + 0.03; } });
+    S.pts.forEach(function(p){ if (p.br){ p.br = false; p.cw = true; p.y = Math.max(ST.G.hAt(p.x, p.z), 0.04) + 0.03; } });
     out.push(S); });
   return out; }
 function roadPoint(R, s, o){ var f = s / (R.step || 0.5), i = f | 0, n = R.pts.length; if (i > n - 2) i = n - 2; if (i < 0) i = 0; var t = clamp(f - i, 0, 1), a = R.pts[i], b = R.pts[i + 1];
@@ -273,7 +277,7 @@ function drawOverlays(ctx, isMask){
   for (z = zA; z <= zB; z += 0.8) prom.push([coastX(z) - 1.65, z]);
   var zT = LMP['tram-huong'][1], plaza = [[coastX(zT - 1.7) - 2.25, zT - 1.7], [coastX(zT - 1.7) - 0.8, zT - 1.7], [coastX(zT + 1.7) - 0.8, zT + 1.7], [coastX(zT + 1.7) - 2.25, zT + 1.7]];
   if (isMask){ ctx.fillStyle = '#fff'; ctx.strokeStyle = '#fff';
-    ROADS_S.concat([RAIL_S]).forEach(function(R){ ctx.lineWidth = R.rail ? 0.8 : R.w + 0.34; landRuns(R.pts).forEach(function(run){ strokeLine(ctx, run); });
+    ST.ROADS_S.concat([ST.RAIL_S]).forEach(function(R){ ctx.lineWidth = R.rail ? 0.8 : R.w + 0.34; landRuns(R.pts).forEach(function(run){ strokeLine(ctx, run); });
       if (!R.rail && R.pts.some(function(p){ return p.br; })) strokeLine(ctx, R.pts.map(function(p){ return [p.x, p.z]; })); });   // cầu: chừa cả dốc hai đầu
     OSM_MINOR.forEach(function(R){ ctx.lineWidth = R.w + 0.1; strokeLine(ctx, R.pts); });
     if (OSM) OSM.rails.slice(1).forEach(function(r){ ctx.lineWidth = 0.4; strokeLine(ctx, r); });
@@ -285,7 +289,7 @@ function drawOverlays(ctx, isMask){
   ctx.strokeStyle = '#d5ccb7'; ctx.lineWidth = 0.05; for (var q = -1.5; q <= 1.5; q += 0.5){ strokeLine(ctx, [[coastX(zT + q) - 2.2, zT + q], [coastX(zT + q) - 0.85, zT + q]]); }
   // Đường vẽ theo LỚP cho mọi đường (không vẽ trọn từng đường một, vì vỉa hè đường sau sẽ đè lòng đường và vạch đường trước ở giao lộ):
   // vỉa hè → bó vỉa → lòng đường → vạch biên, vạch giữa → xoá vạch ở giao lộ bằng đĩa nhựa đường
-  var MAJ = []; ROADS_S.forEach(function(R){ landRuns(R.pts).forEach(function(run){ MAJ.push({ R:R, pts:run }); }); });
+  var MAJ = []; ST.ROADS_S.forEach(function(R){ landRuns(R.pts).forEach(function(run){ MAJ.push({ R:R, pts:run }); }); });
   var MIN = OSM_MINOR.map(function(R){ return { R:R, pts:R.pts }; }), ALL = MIN.concat(MAJ), ASP = '#86898c';
   function pass(list, c, wf, dash){ ctx.strokeStyle = c; if (dash) ctx.setLineDash(dash); list.forEach(function(u){ var w = wf(u.R); if (w > 0){ ctx.lineWidth = w; strokeLine(ctx, u.pts); } }); ctx.setLineDash([]); }
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
@@ -312,19 +316,19 @@ function drawOverlays(ctx, isMask){
       if (ir > 0.2){ ctx.scale(0.55, 0.55); ctx.translate(o.x / 0.55 - o.x, o.z / 0.55 - o.z); ctx.strokeStyle = '#e8b04a'; ctx.lineWidth = 0.08; ctx.setLineDash([0.05, 0.05]); strokeLine(ctx, I.concat([I[0]])); ctx.setLineDash([]); }
       ctx.restore(); } });   // vòng xoay theo đúng hình OSM; đảo giữa: bó vỉa, cỏ, viền hoa
   if (OSM) OSM.rails.slice(1).forEach(function(r){ ctx.strokeStyle = '#a89c88'; ctx.lineWidth = 0.26; strokeLine(ctx, r); ctx.setLineDash([0.05, 0.07]); ctx.strokeStyle = '#6c5a48'; ctx.lineWidth = 0.18; strokeLine(ctx, r); ctx.setLineDash([]); });   // ray phụ: bãi ga, đường vòng
-  landRuns(RAIL_S.pts).forEach(function(run){ ctx.strokeStyle = '#a89c88'; ctx.lineWidth = 0.46; strokeLine(ctx, run); ctx.setLineDash([0.05, 0.07]); ctx.strokeStyle = '#6c5a48'; ctx.lineWidth = 0.3; strokeLine(ctx, run); ctx.setLineDash([]); ctx.strokeStyle = '#4f4b47'; ctx.lineWidth = 0.06; strokeLine(ctx, run); });
+  landRuns(ST.RAIL_S.pts).forEach(function(run){ ctx.strokeStyle = '#a89c88'; ctx.lineWidth = 0.46; strokeLine(ctx, run); ctx.setLineDash([0.05, 0.07]); ctx.strokeStyle = '#6c5a48'; ctx.lineWidth = 0.3; strokeLine(ctx, run); ctx.setLineDash([]); ctx.strokeStyle = '#4f4b47'; ctx.lineWidth = 0.06; strokeLine(ctx, run); });
   ctx.fillStyle = '#4fc3dd'; [[12.2196,109.2399,0.9,0.45],[12.2176,109.2424,0.6,0.38],[12.2206,109.2448,0.7,0.34],[12.1792,109.2318,0.5,0.3]].forEach(function(p){ var c = P(p[0], p[1]); ctx.fillRect(c[0] - p[2] / 2, c[1] - p[3] / 2, p[2], p[3]); });
 }
 
 function buildTerrain(){
-  var GX = G.GX, GZ = G.GZ, N = GX * GZ, pos = new Float32Array(N * 3), uv = new Float32Array(N * 2);
-  for (var j = 0; j < GZ; j++) for (var i = 0; i < GX; i++){ var k = j * GX + i, x = BX0 + i * G.cx, z = BZ0 + j * G.cz, h = G.h[k], c = boardClamp(x, z);
-    if (c[0] !== x || c[1] !== z){ x = c[0]; z = c[1]; h = G.hAt(x, z); }
+  var GX = ST.G.GX, GZ = ST.G.GZ, N = GX * GZ, pos = new Float32Array(N * 3), uv = new Float32Array(N * 2);
+  for (var j = 0; j < GZ; j++) for (var i = 0; i < GX; i++){ var k = j * GX + i, x = BX0 + i * ST.G.cx, z = BZ0 + j * ST.G.cz, h = ST.G.h[k], c = boardClamp(x, z);
+    if (c[0] !== x || c[1] !== z){ x = c[0]; z = c[1]; h = ST.G.hAt(x, z); }
     pos[k * 3] = x; pos[k * 3 + 1] = h; pos[k * 3 + 2] = z; uv[k * 2] = (x - BX0) / BW; uv[k * 2 + 1] = (z - BZ0) / BD; }
   var idx = new Uint32Array((GX - 1) * (GZ - 1) * 6), q = 0;
   for (j = 0; j < GZ - 1; j++) for (i = 0; i < GX - 1; i++){ var a = j * GX + i, b = a + 1, c2 = a + GX, d = c2 + 1; idx[q++] = a; idx[q++] = c2; idx[q++] = b; idx[q++] = b; idx[q++] = c2; idx[q++] = d; }
   var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(new THREE.BufferAttribute(idx, 1)); g.computeVertexNormals();
-  var tm = new THREE.MeshStandardMaterial({ map:groundTex, roughness:0.95, metalness:0 });
+  var tm = new THREE.MeshStandardMaterial({ map:ST.groundTex, roughness:0.95, metalness:0 });
   tm.onBeforeCompile = function(sh){ sh.uniforms.uDetail = DU.tex; sh.uniforms.uDBox = DU.box; sh.uniforms.uDOn = DU.on;
     sh.vertexShader = 'varying vec2 vWXZ;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvWXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
     sh.fragmentShader = 'uniform sampler2D uDetail;\nuniform vec4 uDBox;\nuniform float uDOn;\nvarying vec2 vWXZ;\n' + sh.fragmentShader.replace('#include <map_fragment>', [
@@ -355,7 +359,7 @@ function updateDetail(fx, fz, want){
       DP.job.img = DP.job.ctx.createImageData(DP.res, DP.res); } }
   var J = DP.job; if (!J) return;
   var rows = DP.valid ? (LITE ? 48 : 96) : DP.res, r1 = Math.min(DP.res, J.row + rows);
-  paintGround(J.img.data, DP.res, DP.res, G, J.x0, J.z0, DP.size, DP.size, J.row, r1); J.row = r1;
+  paintGround(J.img.data, DP.res, DP.res, ST.G, J.x0, J.z0, DP.size, DP.size, J.row, r1); J.row = r1;
   if (J.row >= DP.res){ var ctx = J.ctx; ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.putImageData(J.img, 0, 0); worldCtx(ctx, DP.res, DP.res, J.x0, J.z0, DP.size, DP.size); drawOverlays(ctx, false);
     J.slot.t.needsUpdate = true; DU.tex.value = J.slot.t; DU.box.value.set(J.x0, J.z0, DP.size, DP.size); DP.cur = DP.textures.indexOf(J.slot); DP.cx = J.cx; DP.cz = J.cz; DP.valid = true; DU.on.value = 1; DP.job = null; } }
 
@@ -366,8 +370,8 @@ function perimeter(stepL){ var pts = [], C = [[BX1 - BR, BZ0 + BR, -Math.PI / 2]
   return pts; }
 
 function buildWater(){
-  var GX = G.GX, GZ = G.GZ, data = new Uint8Array(GX * GZ * 4);
-  for (var k = 0; k < GX * GZ; k++){ data[k * 4] = clamp(((-G.h[k]) + 1) / 7, 0, 1) * 255; data[k * 4 + 1] = G.sea[k] * 255; data[k * 4 + 2] = 0; data[k * 4 + 3] = 255; }
+  var GX = ST.G.GX, GZ = ST.G.GZ, data = new Uint8Array(GX * GZ * 4);
+  for (var k = 0; k < GX * GZ; k++){ data[k * 4] = clamp(((-ST.G.h[k]) + 1) / 7, 0, 1) * 255; data[k * 4 + 1] = ST.G.sea[k] * 255; data[k * 4 + 2] = 0; data[k * 4 + 3] = 255; }
   var dt = new THREE.DataTexture(data, GX, GZ, THREE.RGBAFormat); dt.magFilter = THREE.LinearFilter; dt.minFilter = THREE.LinearFilter; dt.generateMipmaps = false; dt.needsUpdate = true;
   waterU = { uTime:{ value:0 }, uDepth:{ value:dt }, uBox:{ value:new THREE.Vector4(BX0, BZ0, BW, BD) }, uGrid:{ value:new THREE.Vector2(GX, GZ) },
     uShallow:{ value:new THREE.Color('#3fc8cf') }, uDeep:{ value:new THREE.Color('#0f5f8c') }, uFoam:{ value:new THREE.Color('#ffffff') }, uSky:{ value:new THREE.Color('#bfe6f5') } };
@@ -414,7 +418,7 @@ function buildSkirt(){
   var per = perimeter(1.2); per.push(per[0]);
   var pos = [], col = [], soil = [new THREE.Color('#9c6b43'), new THREE.Color('#7d5434'), new THREE.Color('#4b3a30')], seaC = [new THREE.Color('#47bfd0'), new THREE.Color('#2a8fb0'), new THREE.Color('#bfa77e'), new THREE.Color('#4b3a30')];
   var cols = [], ys = [];
-  per.forEach(function(p){ var h = G.hAt(p[0], p[1]);
+  per.forEach(function(p){ var h = ST.G.hAt(p[0], p[1]);
     if (h > 0.02){ ys.push([h, h - 0.5, -3, -10]); var top = new THREE.Color().setRGB(0.55, 0.62, 0.38); cols.push([top, soil[0], soil[1], soil[2]]); }
     else { ys.push([0, Math.max(h, -6), Math.max(h, -6) - 0.4, -10]); cols.push(seaC); } });
   function v(i, r){ pos.push(per[i][0], ys[i][r], per[i][1]); var c = cols[i][r]; col.push(c.r, c.g, c.b); }
@@ -435,7 +439,7 @@ function topOf(g){ g.updateMatrixWorld(true); return new THREE.Box3().setFromObj
 function buildLandmarks(){
   var p, g;
   p = LMP.ponagar; g = place(buildPonagar(), 'ponagar', p[0], p[1], null, 0, 0.22); LMP.ponagarTop = topOf(g);
-  p = LMP['hon-chong']; g = place(buildHonChong(), 'hon-chong', p[0], p[1], Math.max(G.hAt(p[0], p[1]) - 0.2, -0.2), 0.4, 0.24);   // bãi đá OSM ~115 × 60 m LMP.honchongTop = topOf(g);
+  p = LMP['hon-chong']; g = place(buildHonChong(), 'hon-chong', p[0], p[1], Math.max(ST.G.hAt(p[0], p[1]) - 0.2, -0.2), 0.4, 0.24);   // bãi đá OSM ~115 × 60 m LMP.honchongTop = topOf(g);
   p = LMP['cho-dam']; g = realY(place(buildChoDam(), 'cho-dam', p[0], p[1], null, 0, 0.235));   // OSM ~125 × 116 m LMP.chodamTop = topOf(g);
   p = LMP.buddha; g = realY(place(buildBuddha(), 'long-son', p[0], p[1], null, 0, 0.09));   // tượng 24 m trên bệ hoa sen, bệ ~35 m LMP.buddhaTop = topOf(g);
   p = LMP.pagoda; realY(place(buildPagoda(), 'long-son', p[0], p[1], null, 1.17, 0.075));   // chính điện OSM 40 × 30 m, trục 67°
@@ -451,7 +455,7 @@ function buildLandmarks(){
   g = realY(place(bd, 'bao-dai', p[0], p[1], null, 0.63, 0.17));   // biệt thự chính OSM 25 × 13 m, trục 36° LMP.baodaiTop = topOf(g);
   p = LMP['hai-dang']; g = place(buildLighthouse(), 'hai-dang', p[0], p[1], null, 1.745, 1);   // nền theo chân đế OSM, trục 100° từ hướng đông LMP.haidangTop = topOf(g);
   var hd = ISLANDS.filter(function(I){ return I.id === 'hon-do'; })[0], hp = LMP['hon-do'];
-  g = place(buildTemple(), 'hon-do', hp[0], hp[1], G.hAt(hp[0], hp[1]) - 0.05, 0.5, 0.32); LMP.hondoTop = topOf(g);
+  g = place(buildTemple(), 'hon-do', hp[0], hp[1], ST.G.hAt(hp[0], hp[1]) - 0.05, 0.5, 0.32); LMP.hondoTop = topOf(g);
   /* port: jetties + cruise ship */
   [[12.2062,109.2176,12.2082,109.2205,0.7],[12.2048,109.2168,12.2036,109.2196,0.5],[12.2188,109.2392,12.2168,109.2372,0.45],[12.1940,109.2207,12.1946,109.2190,0.35],[12.1798,109.2318,12.1810,109.2306,0.3]].forEach(function(j){
     var a = P(j[0], j[1]), b = P(j[2], j[3]), dx = b[0] - a[0], dz = b[1] - a[1], L = Math.hypot(dx, dz), m = box(j[4], 0.6, L, '#cfc8b8');
@@ -467,7 +471,7 @@ function buildCable(){
   place(buildCableStation(), 'cap-treo', B[0], B[1], yb, Math.atan2(B[0] - A[0], B[1] - A[1]) + Math.PI / 2, 1);
   var dx = B[0] - A[0], dz = B[1] - A[1], rot = Math.atan2(dx, dz), px = -dz, pz = dx, pl = Math.hypot(px, pz); px /= pl; pz /= pl;
   var sup = [new THREE.Vector3(A[0], ya + 1.0, A[1])], NT = 9;
-  for (var i = 1; i <= NT; i++){ var f = i / (NT + 1), x = A[0] + dx * f, z = A[1] + dz * f, h = 2.4 + 2.6 * Math.sin(Math.PI * f), base = Math.max(G.hAt(x, z), -0.5);
+  for (var i = 1; i <= NT; i++){ var f = i / (NT + 1), x = A[0] + dx * f, z = A[1] + dz * f, h = 2.4 + 2.6 * Math.sin(Math.PI * f), base = Math.max(ST.G.hAt(x, z), -0.5);
     var tw = buildCablePylon(h); place(tw, 'cap-treo', x, z, base, rot, 1); sup.push(new THREE.Vector3(x, base + h + 0.05, z)); }
   sup.push(new THREE.Vector3(B[0], yb + 1.0, B[1]));
   LMP.cableMid = sup[5].clone().setY(sup[5].y + 0.8); LMP.cableFocus = new THREE.Vector3(A[0] + dx * 0.5, 2, A[1] + dz * 0.5);
@@ -504,9 +508,9 @@ function ribbon(runs, mk){ var pos = [], idx = [];
   var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals(); return g; }
 function buildBridges(){
   var piers = [], lights = [], runs = [];
-  ROADS_S.concat([RAIL_S]).forEach(function(R){ var cur = []; R.pts.forEach(function(p){ if (p.br) cur.push(p); else { if (cur.length > 1) runs.push({ R:R, pts:cur }); cur = []; } }); if (cur.length > 1) runs.push({ R:R, pts:cur }); });
-  ROADS_S.concat([RAIL_S]).forEach(function(R){ R.pts.forEach(function(p, i){ if (!p.br) return; var w = R.rail ? 0.5 : R.w + 0.16;
-    var gH = G.hAt(p.x, p.z);
+  ST.ROADS_S.concat([ST.RAIL_S]).forEach(function(R){ var cur = []; R.pts.forEach(function(p){ if (p.br) cur.push(p); else { if (cur.length > 1) runs.push({ R:R, pts:cur }); cur = []; } }); if (cur.length > 1) runs.push({ R:R, pts:cur }); });
+  ST.ROADS_S.concat([ST.RAIL_S]).forEach(function(R){ R.pts.forEach(function(p, i){ if (!p.br) return; var w = R.rail ? 0.5 : R.w + 0.16;
+    var gH = ST.G.hAt(p.x, p.z);
     if (i % 4 === 0 && p.y - Math.max(gH, 0) > 0.3) piers.push({ x:p.x, z:p.z, y:Math.min(gH, 0) - 0.4, top:p.y - 0.12, r:Math.atan2(p.fx, p.fz), w:w * 0.8 });   // trụ chỉ ở chỗ cầu cao hơn đất, cao vừa tới mặt cầu
     if (!R.rail && i % 3 === 0) lights.push(p.x - p.fz * w / 2, p.y + 0.3, p.z + p.fx * w / 2, p.x + p.fz * w / 2, p.y + 0.3, p.z - p.fx * w / 2); }); });
   var bx = new THREE.BoxGeometry(1, 1, 1);
@@ -563,24 +567,24 @@ function buildCity(B){
 
 function buildVegetation(T, B){
   var forest = [], round = [];
-  T.round.forEach(function(t){ if (t.y > 1.1 && G.zoneAt(t.x, t.z) < 10) forest.push(t); else round.push(t); });
-  B.yard.forEach(function(p){ var y = G.hAt(p.x, p.z); if (y > 0.3 && !MK(p.x, p.z)) round.push({ x:p.x, z:p.z, y:y, s:0.22 + ih(p.x * 10, p.z * 10) * 0.12, a:0, sq:1 }); });
-  ROADS_S.forEach(function(R){ R.pts.forEach(function(p, i){ if (i % 3 || p.br || p.cw) return; [-1, 1].forEach(function(s){ var x = p.x - p.fz * s * (R.w / 2 + 0.2), z = p.z + p.fx * s * (R.w / 2 + 0.2), y = G.hAt(x, z), zn = G.zoneAt(x, z); if (roundD(x, z) < 0.15) return;
+  T.round.forEach(function(t){ if (t.y > 1.1 && ST.G.zoneAt(t.x, t.z) < 10) forest.push(t); else round.push(t); });
+  B.yard.forEach(function(p){ var y = ST.G.hAt(p.x, p.z); if (y > 0.3 && !ST.MK(p.x, p.z)) round.push({ x:p.x, z:p.z, y:y, s:0.22 + ih(p.x * 10, p.z * 10) * 0.12, a:0, sq:1 }); });
+  ST.ROADS_S.forEach(function(R){ R.pts.forEach(function(p, i){ if (i % 3 || p.br || p.cw) return; [-1, 1].forEach(function(s){ var x = p.x - p.fz * s * (R.w / 2 + 0.2), z = p.z + p.fx * s * (R.w / 2 + 0.2), y = ST.G.hAt(x, z), zn = ST.G.zoneAt(x, z); if (roundD(x, z) < 0.15) return;
       if (y > 0.36 && (zn >= 10 || zn === 1) && coastX(z) - x > 2.3) round.push({ x:x, z:z, y:y, s:0.2 + ih(i, s + 5) * 0.06, a:0, sq:1 }); }); }); });
   var TC = ['#5f9e48','#4f9140','#6aa84f','#3f8636','#78ad52','#58923f'], FC = ['#4a8a3c','#3f7d36','#56913f','#467f35','#5a8f3e','#6d9442','#7f9a4a'];
   instChunks(forestGeo, VCM, forest, function(d, it, c){ d.position.set(it.x, it.y - 0.05, it.z); d.rotation.y = it.a; d.scale.set(it.s, it.s * it.sq, it.s); c.set(FC[(ih(it.x * 7, it.z * 3) * FC.length) | 0]); });
   instChunks(canopyGeo, VCM, round, function(d, it, c){ d.position.set(it.x, it.y - 0.02, it.z); d.rotation.y = it.a; d.scale.setScalar(it.s * 1.5); c.set(TC[(ih(it.x * 5, it.z * 9) * TC.length) | 0]); });
   instChunks(coneTreeGeo, VCM, T.cones, function(d, it, c){ d.position.set(it.x, it.y - 0.05, it.z); d.rotation.y = it.a; d.scale.setScalar(it.s * 1.4); c.set(['#3e7a38','#356f31','#4a8a3e'][(ih(it.x, it.z) * 3) | 0]); });
   var palms = T.palms.slice();
-  function palmLine(lat0, lat1, off, stepL){ for (var z = P(lat0, 0)[1]; z <= P(lat1, 0)[1]; z += stepL){ var x = coastX(z) - off; if (!MK(x, z) || true){ var y = G.hAt(x, z); if (y > 0.25) palms.push({ x:x, z:z, y:y, s:0.95 + ih(z * 10, off * 10) * 0.35, a:ih(z * 3, 7) * 6.28, t:(ih(z * 5, 3) - 0.5) * 0.25 }); } } }
-  ROUNDS.forEach(function(o, k){ var ir = o.r - o.w / 2; if (ir < 0.22) return; var y = G.hAt(o.x, o.z), n = ir > 0.5 ? 4 : 2;   // cây cọ trên đảo bùng binh
+  function palmLine(lat0, lat1, off, stepL){ for (var z = P(lat0, 0)[1]; z <= P(lat1, 0)[1]; z += stepL){ var x = coastX(z) - off; if (!ST.MK(x, z) || true){ var y = ST.G.hAt(x, z); if (y > 0.25) palms.push({ x:x, z:z, y:y, s:0.95 + ih(z * 10, off * 10) * 0.35, a:ih(z * 3, 7) * 6.28, t:(ih(z * 5, 3) - 0.5) * 0.25 }); } } }
+  ROUNDS.forEach(function(o, k){ var ir = o.r - o.w / 2; if (ir < 0.22) return; var y = ST.G.hAt(o.x, o.z), n = ir > 0.5 ? 4 : 2;   // cây cọ trên đảo bùng binh
     palms.push({ x:o.x, z:o.z, y:y, s:0.9, a:k, t:0.05 }); for (var i = 0; i < n; i++){ var a = i / n * 6.283 + k; palms.push({ x:o.x + Math.cos(a) * ir * 0.5, z:o.z + Math.sin(a) * ir * 0.5, y:y, s:0.75, a:a, t:0.1 }); } });
   palmLine(12.2620, 12.2104, 1.22, 0.42); palmLine(12.2620, 12.2104, 2.05, 0.5); palmLine(12.2985, 12.2668, 1.15, 0.55);
   var keepClear = function(p){ for (var i = 0; i < KEEP.length; i++) if (Math.hypot(p.x - KEEP[i][0], p.z - KEEP[i][1]) < KEEP[i][2] * 0.8) return false; return true; };
   palms = palms.filter(keepClear);
   instChunks(palmGeo, VCM, palms, function(d, it, c){ d.position.set(it.x, it.y - 0.02, it.z); d.rotation.set(it.t, it.a, 0); d.scale.setScalar(it.s); c.set(['#ffffff','#eef6df','#f6f1e2'][(ih(it.x * 3, it.z) * 3) | 0]); });
   var umb = [], lounge = [], UC = ['#f2592c','#3fb6c9','#ffd23f','#ffffff','#ff8fab','#2a9d8f'];
-  for (var z = P(12.2600, 0)[1]; z <= P(12.2125, 0)[1]; z += 0.2){ var sec = ih(Math.floor(z / 6), 4); if (sec < 0.25) continue; var x = coastX(z) - 0.42 - ih(z * 13, 1) * 0.42, y = G.hAt(x, z); if (y < 0.08) continue;
+  for (var z = P(12.2600, 0)[1]; z <= P(12.2125, 0)[1]; z += 0.2){ var sec = ih(Math.floor(z / 6), 4); if (sec < 0.25) continue; var x = coastX(z) - 0.42 - ih(z * 13, 1) * 0.42, y = ST.G.hAt(x, z); if (y < 0.08) continue;
     var col = UC[(Math.floor(z / 6) * 7 + 3) % UC.length]; umb.push({ x:x, z:z, y:y, c:col }); lounge.push({ x:x + 0.07, z:z + 0.03, y:y }, { x:x + 0.07, z:z - 0.05, y:y }); }
   instChunks(umbGeo, VCM, umb, function(d, it, c){ d.position.set(it.x, it.y, it.z); d.scale.setScalar(1.25); c.set(it.c); }, { cast:true });
   var lg = new THREE.BoxGeometry(0.09, 0.02, 0.035); lg.translate(0, 0.02, 0);
@@ -589,7 +593,7 @@ function buildVegetation(T, B){
 
 function buildBoats(){
   var hulls = [], coracles = [], HC = ['#ffffff','#e6f0ff','#dcebf5','#fff4e8','#e8f6f0'];
-  function okW(x, z, r){ return G.hAt(x, z) < -0.32 && G.hAt(x + r, z) < -0.25 && G.hAt(x - r, z) < -0.25 && G.hAt(x, z + r) < -0.25 && G.hAt(x, z - r) < -0.25; }
+  function okW(x, z, r){ return ST.G.hAt(x, z) < -0.32 && ST.G.hAt(x + r, z) < -0.25 && ST.G.hAt(x - r, z) < -0.25 && ST.G.hAt(x, z + r) < -0.25 && ST.G.hAt(x, z - r) < -0.25; }
   function cluster(lat, lon, rad, n, list, align){ var c = P(lat, lon), tries = 0, made = 0; while (made < n && tries < n * 30){ tries++; var a = ih(tries, lat * 1e4) * Math.PI * 2, r = Math.sqrt(ih(lon * 1e4, tries)) * rad, x = c[0] + Math.cos(a) * r, z = c[1] + Math.sin(a) * r;
       if (!inBoard(x, z, 2) || !okW(x, z, 0.28)) continue; var ok = true; for (var k = list.length - 1; k >= Math.max(0, list.length - 60); k--){ if (Math.hypot(list[k].x - x, list[k].z - z) < 0.36){ ok = false; break; } } if (!ok) continue;
       list.push({ x:x, z:z, r:align != null ? align + (ih(tries, 3) - 0.5) * 0.5 : ih(tries, 9) * 6.28, c:HC[(ih(x * 9, z * 9) * HC.length) | 0], ph:ih(x, z) * 6.28 }); made++; } }
@@ -604,7 +608,7 @@ function buildBoats(){
   var cells = [], huts = [];
   [[12.1915,109.2186,7,4,0.6],[12.1862,109.2262,5,4,0.3],[12.1968,109.2878,6,3,0.1],[12.1972,109.2640,5,3,-0.2],[12.1788,109.2272,4,3,0.5],[12.1950,109.3040,4,3,0.8]].forEach(function(f){
     var c = P(f[0], f[1]), ca = Math.cos(f[4]), sa = Math.sin(f[4]), S = 0.34;
-    for (var i = 0; i < f[2]; i++) for (var j = 0; j < f[3]; j++){ var u = (i - f[2] / 2) * S, v = (j - f[3] / 2) * S, x = c[0] + u * ca - v * sa, z = c[1] + u * sa + v * ca; if (G.hAt(x, z) > -0.3) continue;
+    for (var i = 0; i < f[2]; i++) for (var j = 0; j < f[3]; j++){ var u = (i - f[2] / 2) * S, v = (j - f[3] / 2) * S, x = c[0] + u * ca - v * sa, z = c[1] + u * sa + v * ca; if (ST.G.hAt(x, z) > -0.3) continue;
       cells.push({ x:x, z:z, r:-f[4] }); if ((i * 7 + j * 3) % 9 === 0) huts.push({ x:x, z:z, r:-f[4] }); } });
   var fr = merge([[new THREE.BoxGeometry(0.34, 0.03, 0.03), MX(0, 0.03, 0.155), '#8b6b4a'], [new THREE.BoxGeometry(0.34, 0.03, 0.03), MX(0, 0.03, -0.155), '#8b6b4a'], [new THREE.BoxGeometry(0.03, 0.03, 0.34), MX(0.155, 0.03, 0), '#8b6b4a'], [new THREE.BoxGeometry(0.03, 0.03, 0.34), MX(-0.155, 0.03, 0), '#8b6b4a'], [new THREE.CylinderGeometry(0.03, 0.03, 0.05, 6), MX(0.155, 0.02, 0.155), '#2f6fb0']]);
   instChunks(fr, VCM, cells, function(d, it){ d.position.set(it.x, 0, it.z); d.rotation.y = it.r; }, { cast:false });
@@ -641,7 +645,7 @@ function buildTraffic(){
       [new THREE.BoxGeometry(0.03, 0.012, 0.044), MX(0, 0.072, 0.004), '#3c4a63'], [new THREE.BoxGeometry(0.032, 0.042, 0.022), MX(0, 0.095, -0.012, 0.15, 0, 0), '#e9e4da'],
       [new THREE.BoxGeometry(0.044, 0.008, 0.008), MX(0, 0.104, 0.008), '#d9b48f'], [new THREE.SphereGeometry(0.0145, 8, 6), MX(0, 0.128, -0.006), '#ffffff']]),
     bus: merge([[new THREE.BoxGeometry(0.12, 0.11, 0.44), MX(0, 0.075, 0), '#ffffff'], [new THREE.BoxGeometry(0.124, 0.035, 0.42), MX(0, 0.095, 0), '#3d4a57']]) };
-  var NV = LITE ? 240 : 560, roads = ROADS_S.filter(function(R){ return R.L > 4; }), tot = roads.reduce(function(s, R){ return s + R.L; }, 0), rv = mulberry32(5);
+  var NV = LITE ? 240 : 560, roads = ST.ROADS_S.filter(function(R){ return R.L > 4; }), tot = roads.reduce(function(s, R){ return s + R.L; }, 0), rv = mulberry32(5);
   var V = { moto:[], car:[], bus:[] }, MC = ['#d62828','#1d3557','#f1faee','#2a2a2a','#457b9d','#e9c46a','#8d99ae','#e76f51'], CC = ['#ffffff','#c0c4c8','#d62828','#1d3557','#2a2a2a','#e9ecef','#3a86ff'], BC = ['#2f8f5f','#e0a020','#2e6fb5','#e85d04'];
   for (var i = 0; i < NV; i++){ var pick = rv() * tot, R = roads[0]; for (var k = 0; k < roads.length; k++){ if (pick < roads[k].L){ R = roads[k]; break; } pick -= roads[k].L; }
     var r = rv(), type = r < 0.74 ? 'moto' : (r < 0.95 ? 'car' : 'bus');
@@ -661,17 +665,17 @@ function buildTraffic(){
 
 function buildLamps(bridgeLights){
   var pos = bridgeLights.slice();
-  ROADS_S.forEach(function(R){ R.pts.forEach(function(p, i){ if (i % 2 || p.br || p.cw) return; var s = (i / 2) % 2 ? 1 : -1, off = R.w / 2 + 0.1; pos.push(p.x - p.fz * s * off, p.y + 0.3, p.z + p.fx * s * off); }); });
-  for (var z = P(12.2620, 0)[1]; z <= P(12.2104, 0)[1]; z += 0.9){ var x = coastX(z) - 1.65; pos.push(x, G.hAt(x, z) + 0.28, z); }
+  ST.ROADS_S.forEach(function(R){ R.pts.forEach(function(p, i){ if (i % 2 || p.br || p.cw) return; var s = (i / 2) % 2 ? 1 : -1, off = R.w / 2 + 0.1; pos.push(p.x - p.fz * s * off, p.y + 0.3, p.z + p.fx * s * off); }); });
+  for (var z = P(12.2620, 0)[1]; z <= P(12.2104, 0)[1]; z += 0.9){ var x = coastX(z) - 1.65; pos.push(x, ST.G.hAt(x, z) + 0.28, z); }
   // có OSM: đèn dọc đường nhỏ thật (cách ~60 m), không rải theo lưới phố ước lượng
   if (OSM) OSM_MINOR.forEach(function(R){ if (R.c > 6) return; var acc = 0.6, Q = R.pts;
     for (var i = 0; i < Q.length - 1; i++){ var dx = Q[i + 1][0] - Q[i][0], dz = Q[i + 1][1] - Q[i][1], L = Math.hypot(dx, dz);
-      while (acc < L){ var t = acc / L, x = Q[i][0] + dx * t - dz / L * (R.w / 2 + 0.06), z = Q[i][1] + dz * t + dx / L * (R.w / 2 + 0.06), y = G.hAt(x, z); if (y > 0.25) pos.push(x, y + 0.24, z); acc += 1.2; }
+      while (acc < L){ var t = acc / L, x = Q[i][0] + dx * t - dz / L * (R.w / 2 + 0.06), z = Q[i][1] + dz * t + dx / L * (R.w / 2 + 0.06), y = ST.G.hAt(x, z); if (y > 0.25) pos.push(x, y + 0.24, z); acc += 1.2; }
       acc -= L; } });
   if (!OSM) DIST.forEach(function(D){ if (D.style === 'village') return; var us = [], vs = []; D.poly.forEach(function(p){ var l = toLocal(D, p[0], p[1]); us.push(l[0]); vs.push(l[1]); });
     var u0 = Math.min.apply(null, us), u1 = Math.max.apply(null, us), v0 = Math.min.apply(null, vs), v1 = Math.max.apply(null, vs), st = D.style === 'city' ? 1.05 : 1.6;
-    for (var i = Math.ceil(u0 / D.su); i * D.su <= u1; i++) for (var v = v0; v <= v1; v += st){ var w = toWorld(D, i * D.su, v); if (G.zoneAt(w[0], w[1]) === 10 + D.i) pos.push(w[0], G.hAt(w[0], w[1]) + 0.24, w[1]); }
-    for (var j = Math.ceil(v0 / D.sv); j * D.sv <= v1; j++) for (var u = u0; u <= u1; u += st){ var w2 = toWorld(D, u, j * D.sv); if (G.zoneAt(w2[0], w2[1]) === 10 + D.i) pos.push(w2[0], G.hAt(w2[0], w2[1]) + 0.24, w2[1]); } });
+    for (var i = Math.ceil(u0 / D.su); i * D.su <= u1; i++) for (var v = v0; v <= v1; v += st){ var w = toWorld(D, i * D.su, v); if (ST.G.zoneAt(w[0], w[1]) === 10 + D.i) pos.push(w[0], ST.G.hAt(w[0], w[1]) + 0.24, w[1]); }
+    for (var j = Math.ceil(v0 / D.sv); j * D.sv <= v1; j++) for (var u = u0; u <= u1; u += st){ var w2 = toWorld(D, u, j * D.sv); if (ST.G.zoneAt(w2[0], w2[1]) === 10 + D.i) pos.push(w2[0], ST.G.hAt(w2[0], w2[1]) + 0.24, w2[1]); } });
   lampPts = glowPoints(pos, null, 0.5, '#ffcf8a'); }
 
 function buildSky(){
@@ -693,7 +697,7 @@ var TOD = [
   { top:'#27306a', mid:'#9b5d8f', bot:'#ffad74', fog:'#d9958a', hs:'#9a8fe0', hg:'#3a3550', hi:0.58, sun:'#ffad6b', si:1.1, sp:[-0.8, 0.32, -0.2], sh:'#4aa6b8', dp:'#1b3b6a', foam:'#ffe2cf', sky:'#f3a383', cloud:'#ffcdbd', exp:1.05, lamp:0.75, glow:0.6 },
   { top:'#070d22', mid:'#132042', bot:'#2a3762', fog:'#141c38', hs:'#5d74b8', hg:'#141826', hi:0.5, sun:'#9fb4ff', si:0.32, sp:[0.3, 0.85, -0.45], sh:'#1d4a66', dp:'#071b33', foam:'#7f93b5', sky:'#22305a', cloud:'#3a4670', exp:1.15, lamp:1, glow:1 }
 ].map(function(t){ var o = {}; for (var k in t) o[k] = typeof t[k] === 'string' ? C(t[k]) : t[k]; o.sp = new THREE.Vector3(t.sp[0], t.sp[1], t.sp[2]).normalize(); return o; });
-var tod = 0, todTarget = 0, todUser = false, sunDir = new THREE.Vector3(), lampK = 0, _t1 = new THREE.Color(), _t2 = new THREE.Color(), _t3 = new THREE.Color();
+ST.tod = 0; ST.todTarget = 0; ST.todUser = false; var sunDir = new THREE.Vector3(); var lampK = 0; var _t1 = new THREE.Color(); var _t2 = new THREE.Color(); var _t3 = new THREE.Color();
 function applyTod(k){
   var i = k <= 1 ? 0 : 1, f = k - i, a = TOD[i], b = TOD[i + 1];
   _t1.lerpColors(a.top, b.top, f); _t2.lerpColors(a.mid, b.mid, f); _t3.lerpColors(a.bot, b.bot, f);
@@ -704,9 +708,11 @@ function applyTod(k){
   renderer.toneMappingExposure = lerp(a.exp, b.exp, f);
   if (waterU){ waterU.uShallow.value.lerpColors(a.sh, b.sh, f); waterU.uDeep.value.lerpColors(a.dp, b.dp, f); waterU.uFoam.value.lerpColors(a.foam, b.foam, f); waterU.uSky.value.lerpColors(a.sky, b.sky, f); }
   if (anim.cloudMat){ anim.cloudMat.color.lerpColors(a.cloud, b.cloud, f); anim.cloudMat.emissive.copy(anim.cloudMat.color); }
-  if (typeof crowdU !== 'undefined'){ var cl = crowdU.uLight.value; cl.copy(hemi.color).multiplyScalar(hemi.intensity / LIGHT_K * 0.95); _t1.copy(sun.color).multiplyScalar(sun.intensity / LIGHT_K * 0.45); cl.add(_t1); cl.r = Math.max(cl.r, 0.3); cl.g = Math.max(cl.g, 0.33); cl.b = Math.max(cl.b, 0.45); }
+  if (typeof ST.crowdU !== 'undefined'){ var cl = ST.crowdU.uLight.value; cl.copy(hemi.color).multiplyScalar(hemi.intensity / LIGHT_K * 0.95); _t1.copy(sun.color).multiplyScalar(sun.intensity / LIGHT_K * 0.45); cl.add(_t1); cl.r = Math.max(cl.r, 0.3); cl.g = Math.max(cl.g, 0.33); cl.b = Math.max(cl.b, 0.45); }
   var gk = lerp(a.glow, b.glow, f); glowMats.forEach(function(g){ g.m.emissiveIntensity = g.base + (g.peak - g.base) * gk; });
   lampK = lerp(a.lamp, b.lamp, f); if (lampPts){ lampPts.material.opacity = lampK; lampPts.visible = lampK > 0.01; } if (carPts){ carPts.material.opacity = lampK * 0.9; carPts.visible = lampK > 0.01; }
-  if (typeof weatherLight === 'function') weatherLight();
-  shadowDirty = true;
+  if (typeof ST.weatherLight === 'function') ST.weatherLight();
+  ST.shadowDirty = true;
 }
+
+export { DP, JETTIES, LITE, LM, LMI, LMP, RESORT_HOTELS, SC, _d, anim, applyTod, b64arr, box, buildBoats, buildBridges, buildCable, buildCity, buildLamps, buildLandmarks, buildResort, buildSkirt, buildSky, buildTerrain, buildTraffic, buildVegetation, buildWater, camera, carPts, cyl, drawOverlays, fail, glowMat, gy, hemi, initDetail, lampK, loader, mat, osmMajorRoads, pickGroups, radialTex, reduceMotion, renderer, roadPoint, sampleRoad, scene, stage, step, sun, sunDir, updateDetail, waterU };

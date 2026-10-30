@@ -1,11 +1,9 @@
 // Kiểm vị trí theo bản đồ thật: so toạ độ địa danh (LM_DEF, LM_EXTRA trong geo.js) với đối tượng OSM đã ghi (osm:'way/123'),
 // so đường bờ đang dùng với bờ OSM, và chắc địa danh trên đất nằm trên đất. Thoát mã 1 nếu có mục vượt ngưỡng.
 // Dùng: node tools/check-positions.js [--refresh]      (tải đối tượng OSM qua API, lưu ở .cache/osm-ref/)
-const fs = require('fs'), path = require('path'), vm = require('vm'), { execFileSync } = require('child_process');
-const ROOT = path.join(__dirname, '..'), CACHE = path.join(ROOT, '.cache/osm-ref'), JS = f => fs.readFileSync(path.join(ROOT, 'src/js', f), 'utf8');
-const G = { atob:s => Buffer.from(s, 'base64').toString('latin1') };
-vm.runInNewContext(JS('terrain-data.js') + JS('osm-data.js') + JS('geo.js') + '\nthis.o = { LM_DEF, LM_EXTRA, P, coastX, H, COAST_REAL, OSM_DATA };', G);
-const { LM_DEF, LM_EXTRA, P, coastX, H, COAST_REAL, OSM_DATA } = G.o;
+const fs = require('fs'), path = require('path'), { execFileSync } = require('child_process');
+const ROOT = path.join(__dirname, '..'), CACHE = path.join(ROOT, '.cache/osm-ref');
+const { LM_DEF, LM_EXTRA, P, coastX, H, COAST_REAL } = require('../src/js/geo.js'), { OSM_DATA } = require('../src/js/osm-data.js');   // ES module (Node ≥ 22.12)
 // ngưỡng lệch (m): công trình 60; đảo, bãi biển, núi là nhãn vùng nên rộng hơn
 const TOL = { 'Đảo':400, 'Biển đảo':400, 'Đảo nhỏ':80, 'Bãi biển':1500, 'Núi':800, 'Thắng cảnh':120, 'Cửa sông':400 };
 const M = (a, b) => Math.hypot((a[0] - b[0]) * 110574, (a[1] - b[1]) * 111320 * Math.cos(a[0] * Math.PI / 180));

@@ -1,3 +1,8 @@
+import { THREE } from './three.js';
+import { ST } from '../state.js';
+import { DIST, OSM, P, coastX, mulberry32, toLocal, toWorld } from './geo.js';
+import { LITE, LMP, anim, scene } from './scene.js';
+import { CROWD_SHEET, KENNEY_ROWS } from './crowd-sheet.js';
 /* ======================= CROWD: 8-direction sprites on GPU billboards ======================= */
 var SPR = { cw:40, ch:60, cols:32, rows:12 };
 var PEOPLE = [
@@ -69,12 +74,12 @@ function buildSpriteSheet(){
 function genCrowd(n){
   var out = [], rc = mulberry32(321); function R(a, b){ return a + (b - a) * rc(); } function pk(a){ return a[(rc() * a.length) | 0]; }
   var zN = P(12.2600, 0)[1], zS = P(12.2125, 0)[1], BEACH = [0, 2, 3, 5, 6, 9, 9, 2], CITY = [0, 1, 3, 4, 8, 10, 7, 0, 3], TOUR = [6, 6, 9, 2, 0, 3, 1, 7];
-  function push(ax, az, bx, bz, row, sp, yo){ var ya = G.hAt(ax, az), yb = G.hAt(bx, bz); if (yo == null && (ya < 0.05 || yb < 0.05)) return false;
+  function push(ax, az, bx, bz, row, sp, yo){ var ya = ST.G.hAt(ax, az), yb = ST.G.hAt(bx, bz); if (yo == null && (ya < 0.05 || yb < 0.05)) return false;
     out.push(ax, yo == null ? ya : yo, az, bx, yo == null ? yb : yo, bz, row, rc(), sp, row === 5 ? 0.082 : 0.087); return true; }
   var quota = { beach:0.3, idle:0.08, prom:0.15, swim:0.08, city:0.27, tour:0.12 }, made = 0, guard = 0;
   function beachPt(dmin, dmax){ var z = R(zN, zS), d = R(dmin, dmax); return [coastX(z) - d, z, d]; }
   var cityD = DIST.filter(function(D){ return D.style === 'city'; });
-  var citySegs = null; if (OSM){ citySegs = []; OSM.roads.forEach(function(Rd){ if (Rd.c < 3 || Rd.bridge) return; for (var i = 0; i < Rd.pts.length - 1; i++){ var a = Rd.pts[i], b = Rd.pts[i + 1], zn = G.zoneAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+  var citySegs = null; if (OSM){ citySegs = []; OSM.roads.forEach(function(Rd){ if (Rd.c < 3 || Rd.bridge) return; for (var i = 0; i < Rd.pts.length - 1; i++){ var a = Rd.pts[i], b = Rd.pts[i + 1], zn = ST.G.zoneAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
     if (zn >= 10 && DIST[zn - 10].style === 'city' && Math.hypot(b[0] - a[0], b[1] - a[1]) > 0.3) citySegs.push([a[0], a[1], b[0], b[1], Rd.w]); } }); if (!citySegs.length) citySegs = null; }
   while (made < n && guard++ < n * 8){ var r = rc(), ok = false, p, len, z2;
     if (r < quota.beach){ p = beachPt(0.12, 0.95); len = R(0.4, 2.5) * (rc() < 0.5 ? 1 : -1); z2 = p[1] + len; ok = push(p[0], p[1], coastX(z2) - p[2], z2, pk(BEACH), R(0.05, 0.09)); }
@@ -88,7 +93,7 @@ function genCrowd(n){
       var D = pk(cityD), lo = toLocal(D, D.box[0], D.box[1]), hi = toLocal(D, D.box[2], D.box[3]), us = [lo[0], hi[0], toLocal(D, D.box[0], D.box[3])[0], toLocal(D, D.box[2], D.box[1])[0]], vs = [lo[1], hi[1], toLocal(D, D.box[0], D.box[3])[1], toLocal(D, D.box[2], D.box[1])[1]];
       var u0 = Math.min.apply(null, us), u1 = Math.max.apply(null, us), v0 = Math.min.apply(null, vs), v1 = Math.max.apply(null, vs), side = (rc() < 0.5 ? 1 : -1) * (D.sw / 2 - 0.025), L2 = R(0.4, 2);
       var a, b; if (rc() < 0.5){ var ul = Math.round(R(u0, u1) / D.su) * D.su + side, vv = R(v0, v1); a = toWorld(D, ul, vv); b = toWorld(D, ul, vv + L2); } else { var vl = Math.round(R(v0, v1) / D.sv) * D.sv + side, uu = R(u0, u1); a = toWorld(D, uu, vl); b = toWorld(D, uu + L2, vl); }
-      if (G.zoneAt(a[0], a[1]) === 10 + D.i && G.zoneAt(b[0], b[1]) === 10 + D.i) ok = push(a[0], a[1], b[0], b[1], pk(CITY), R(0.05, 0.08)); }
+      if (ST.G.zoneAt(a[0], a[1]) === 10 + D.i && ST.G.zoneAt(b[0], b[1]) === 10 + D.i) ok = push(a[0], a[1], b[0], b[1], pk(CITY), R(0.05, 0.08)); }
     else { var spots = ['ponagar', 'cho-dam', 'cho-dam', 'nha-tho', 'tram-huong', 'tram-huong', 'hon-chong', 'vien-hdh', 'long-son', 'bao-dai'], id = pk(spots), c = id === 'long-son' ? LMP.pagoda : LMP[id];
       if (rc() < 0.25) c = rc() < 0.5 ? P(12.2195, 109.2420) : P(12.1790, 109.2325);
       var ang = R(0, 6.28), rad = R(id === 'cho-dam' ? 1.45 : 0.8, 2.6), ax = c[0] + Math.cos(ang) * rad, az = c[1] + Math.sin(ang) * rad, b2 = R(0, 6.28), l3 = rc() < 0.3 ? 0 : R(0.3, 1.2);
@@ -96,9 +101,9 @@ function genCrowd(n){
     if (ok) made++; }
   return new Float32Array(out);
 }
-var crowdU = { uTime:{ value:0 }, uCam:{ value:new THREE.Vector3() }, uMap:{ value:null }, uLight:{ value:new THREE.Color(1.2, 1.2, 1.2) }, uFogColor:{ value:new THREE.Color() }, uFogNear:{ value:100 }, uFogFar:{ value:1000 } };
+ST.crowdU = { uTime:{ value:0 }, uCam:{ value:new THREE.Vector3() }, uMap:{ value:null }, uLight:{ value:new THREE.Color(1.2, 1.2, 1.2) }, uFogColor:{ value:new THREE.Color() }, uFogNear:{ value:100 }, uFogFar:{ value:1000 } };
 function buildCrowd(){
-  var sheet = buildSpriteSheet(), tex = new THREE.CanvasTexture(sheet); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; crowdU.uMap.value = tex;
+  var sheet = buildSpriteSheet(), tex = new THREE.CanvasTexture(sheet); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; ST.crowdU.uMap.value = tex;
   // Các hàng người mặc thường phục được thay bằng nhân vật Kenney vẽ sẵn (crowd-sheet.js); áo dài, nón lá, gánh hàng, người bơi giữ bản vẽ tay.
   // Ảnh giải mã bất đồng bộ nên lúc đầu vẫn hiện bản vẽ tay, xong thì chép đè.
   if (typeof CROWD_SHEET === 'string'){ var KROW = [0, 2, 3, 5, 6, 8, 9], im = new Image();
@@ -112,7 +117,7 @@ function buildCrowd(){
   for (var i = 0; i < N; i++){ var o = i * 10; A.set([data[o], data[o + 1], data[o + 2]], i * 3); Bv.set([data[o + 3], data[o + 4], data[o + 5]], i * 3); Dv.set([data[o + 6], data[o + 7], data[o + 8], data[o + 9]], i * 4); }
   g.setAttribute('aA', new THREE.InstancedBufferAttribute(A, 3)); g.setAttribute('aB', new THREE.InstancedBufferAttribute(Bv, 3)); g.setAttribute('aD', new THREE.InstancedBufferAttribute(Dv, 4));
   g.instanceCount = N;
-  var m = new THREE.ShaderMaterial({ uniforms:crowdU, side:THREE.DoubleSide,
+  var m = new THREE.ShaderMaterial({ uniforms:ST.crowdU, side:THREE.DoubleSide,
     vertexShader:[
       'uniform float uTime; uniform vec3 uCam; uniform float uFogNear; uniform float uFogFar;',
       'attribute vec3 aA; attribute vec3 aB; attribute vec4 aD;',
@@ -143,3 +148,5 @@ function buildCrowd(){
       '}'].join('\n') });
   var mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; scene.add(mesh); anim.crowd = { mesh:mesh, n:N, sheet:sheet };
 }
+
+export { buildCrowd };

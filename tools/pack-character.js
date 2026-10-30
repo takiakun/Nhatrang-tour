@@ -46,4 +46,4 @@ function pack(file, KEEP){
 
 const out = {}; for (const [id, [f, keep]] of Object.entries(LIST)){ const g = pack(path.join(DIR, f + '.glb'), keep); out[id] = g.toString('base64'); console.log('[char] ' + id + ': ' + (g.length / 1024).toFixed(0) + ' KB'); }
 fs.writeFileSync(path.join(ROOT, 'src/js/character.js'), '/* Tự sinh bởi tools/pack-character.js, đừng sửa tay. Nhân vật: Kenney Mini Characters (CC0, www.kenney.nl). */\n' +
-  'var CHAR_GLB = ' + JSON.stringify(out, null, 0).replace(/","/g, '",\n  "') + ';\n');
+  'export var CHAR_GLB = ' + JSON.stringify(out, null, 0).replace(/","/g, '",\n  "') + ';\n');

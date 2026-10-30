@@ -1,3 +1,7 @@
+import { ST } from '../state.js';
+import { DIST, clamp } from './geo.js';
+import { anim, roadPoint } from './scene.js';
+import { PL, PLAY, groundAt } from './player.js';
 /* ======================= ÂM THANH (Web Audio, sinh bằng code) ======================= */
 // Không có file âm thanh: sóng biển, gió, phố xá, còi xe, chim, dế, tiếng xe máy, bước chân, té nước đều tổng hợp từ nhiễu và dao động.
 // Âm lượng từng lớp theo vị trí "người nghe" (nhân vật khi lái, tâm camera khi xem bản đồ) và độ cao camera.
@@ -81,31 +85,31 @@ function honk(){ if (AU.on && AU.ctx) horn(AU.ctx.currentTime, 0.32, 2); }
 
 /* ---------- cập nhật mỗi khung hình ---------- */
 function envAt(x, z){ var water = 0, city = 0, wild = 0, n = 0;
-  for (var a = 0; a < 8; a++) for (var r = 1; r <= 3; r++){ var px = x + Math.cos(a * 0.785) * r * 1.4, pz = z + Math.sin(a * 0.785) * r * 1.4, h = G.hAt(px, pz), zn = G.zoneAt(px, pz); n++;
+  for (var a = 0; a < 8; a++) for (var r = 1; r <= 3; r++){ var px = x + Math.cos(a * 0.785) * r * 1.4, pz = z + Math.sin(a * 0.785) * r * 1.4, h = ST.G.hAt(px, pz), zn = ST.G.zoneAt(px, pz); n++;
     if (h < 0) water++; else if (zn >= 10 && DIST[zn - 10].style !== 'resort') city += DIST[zn - 10].style === 'city' ? 1 : 0.45; else if (h > 0.9) wild++; }
   return { water:water / n, city:city / n, wild:wild / n }; }
 function updateAudio(dt, dist){
   if (!AU.on || !AU.ctx || AU.ctx.state !== 'running') return;
   var ctx = AU.ctx, t = ctx.currentTime, L = AU.layers, play = PLAY.on && PL;
-  var lx = play ? PL.x : controls.target.x, lz = play ? PL.z : controls.target.z, E = envAt(lx, lz);
+  var lx = play ? PL.x : ST.controls.target.x, lz = play ? PL.z : ST.controls.target.z, E = envAt(lx, lz);
   var near = play ? 1 : clamp(1.25 - dist / 140, 0.08, 1), high = play ? 0 : clamp((dist - 40) / 260, 0, 1);
-  var night = clamp(tod - 1, 0, 1);
+  var night = clamp(ST.tod - 1, 0, 1);
   var shore = clamp(E.water * (1 - E.water) * 4.2, 0, 1), sea = clamp(shore * 0.85 + E.water * 0.3, 0, 1);
   if (play && PL.mode === 'swim') sea = 1;
   function set(g, v){ g.gain.setTargetAtTime(v, t, 0.4); }
   set(L.sea, (0.12 + 0.75 * sea * near + 0.18 * high) * 0.55);
-  set(L.wind, (0.05 + 0.3 * high + 0.25 * E.wild * near + (play && PL.mode === 'bike' ? clamp(Math.abs(PL.bike.speed) / 2.4, 0, 1) * 0.25 : 0)) * (0.8 + clamp(WX.wind / 25, 0, 1.2)));  // gió thật (km/h) làm gió to nhỏ
+  set(L.wind, (0.05 + 0.3 * high + 0.25 * E.wild * near + (play && PL.mode === 'bike' ? clamp(Math.abs(PL.bike.speed) / 2.4, 0, 1) * 0.25 : 0)) * (0.8 + clamp(ST.WX.wind / 25, 0, 1.2)));  // gió thật (km/h) làm gió to nhỏ
   set(L.city, E.city * near * (0.5 - 0.3 * night) * 0.6);
-  set(L.night, night * (0.03 + 0.08 * (1 - E.city) * near) * (1 - WX.k.rain));
-  set(L.rain, WX.k.rain * (0.15 + 0.35 * near));
+  set(L.night, night * (0.03 + 0.08 * (1 - E.city) * near) * (1 - ST.WX.k.rain));
+  set(L.rain, ST.WX.k.rain * (0.15 + 0.35 * near));
   // còi xe ngẫu nhiên trong phố, nhiều hơn khi ở gần
   if (t > AU.nextHorn){ AU.nextHorn = t + 1.2 + Math.random() * (7 - 5 * E.city); if (E.city > 0.15 && near > 0.3 && Math.random() < 0.8) horn(t, 0.02 + 0.07 * E.city * near * Math.random(), 1 + (Math.random() < 0.6)); }
   // chim hót ban ngày ở đồi, vườn, ven biển
   if (t > AU.nextBird){ AU.nextBird = t + 0.6 + Math.random() * 3.5; var bird = (1 - night) * (0.25 + E.wild + 0.3 * (1 - E.city)) * near; if (Math.random() < bird) chirp(t, 0.012 + 0.025 * Math.random() * near); }
   // tàu hoả kéo còi khi chạy gần
-  var tr = anim.train && RAIL_S ? roadPoint(RAIL_S, anim.train.s, {}) : null; if (tr && t > AU.nextTrain){ var td = Math.hypot(tr.x - lx, tr.z - lz); if (td < 14 && anim.train.wait <= 0){ trainHorn(t, 0.05 * clamp(1.4 - td / 14, 0, 1) * near); AU.nextTrain = t + 25 + Math.random() * 20; } }
+  var tr = anim.train && ST.RAIL_S ? roadPoint(ST.RAIL_S, anim.train.s, {}) : null; if (tr && t > AU.nextTrain){ var td = Math.hypot(tr.x - lx, tr.z - lz); if (td < 14 && anim.train.wait <= 0){ trainHorn(t, 0.05 * clamp(1.4 - td / 14, 0, 1) * near); AU.nextTrain = t + 25 + Math.random() * 20; } }
   // xe máy của nhân vật
-  var e = AU.eng, sp = play && PL.mode === 'bike' ? Math.abs(PL.bike.speed) : 0, rpm = 19 + sp * 26 + (play && PL.mode === 'bike' && (keys.ShiftLeft || keys.ShiftRight || boostBtn) ? 8 : 0);
+  var e = AU.eng, sp = play && PL.mode === 'bike' ? Math.abs(PL.bike.speed) : 0, rpm = 19 + sp * 26 + (play && PL.mode === 'bike' && (ST.keys.ShiftLeft || ST.keys.ShiftRight || ST.boostBtn) ? 8 : 0);
   e.o1.frequency.setTargetAtTime(rpm * 2, t, 0.12); e.o2.frequency.setTargetAtTime(rpm, t, 0.12); e.pop.frequency.setTargetAtTime(rpm, t, 0.12); e.f.frequency.setTargetAtTime(500 + sp * 700, t, 0.15);
   set(e.g, play && PL.mode === 'bike' ? 0.05 + clamp(sp / 2.4, 0, 1) * 0.07 : 0);
   if (play){
@@ -115,10 +119,12 @@ function updateAudio(dt, dist){
       else if (AU.lastMode === 'bike') tone(t, 90, 40, 0.08, 0.4, 'sawtooth'); }
     // bước chân (đi, chạy) và quạt nước (bơi), theo nhịp hoạt ảnh
     if (PL.mode !== 'bike'){ var step = Math.floor(PL.phase / Math.PI);
-      if (step !== AU.lastPhase && PL.speed > 0.03){ var onSand = G.hAt(PL.x, PL.z) < 0.36 && G.zoneAt(PL.x, PL.z) < 10;
+      if (step !== AU.lastPhase && PL.speed > 0.03){ var onSand = ST.G.hAt(PL.x, PL.z) < 0.36 && ST.G.zoneAt(PL.x, PL.z) < 10;
         if (PL.mode === 'swim') burst(t, 1300, 0.7, 0.07, 0.22, 'lowpass'); else if (PL.y <= groundAt(PL.x, PL.z).y + 0.01) burst(t, onSand ? 700 : 1700, onSand ? 0.7 : 1.4, onSand ? 0.06 : 0.09, onSand ? 0.12 : 0.06); }
       AU.lastPhase = step;
       if (AU.lastVy < -0.3 && PL.vy === 0) burst(t, 300, 0.8, 0.14, 0.12, 'lowpass'); }
     AU.lastVy = PL.vy; AU.lastMode = PL.mode;
   } else AU.lastMode = '';
 }
+
+export { AU, armAudio, honk, setSound, syncSoundBtn, updateAudio };

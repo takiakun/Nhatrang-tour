@@ -5,11 +5,9 @@
 //  3. nhà OSM nằm dưới nước                                      (kích thước, hướng mô hình: tools/check-sizes.js, cần WebGL)
 //  4. đường sắt OSM chạy qua nước > 150 m liền (chưa có cờ cầu cho ray)
 // Thoát mã 1 nếu có mục sai. Dùng: node tests/map-check.js [--verbose]
-const fs = require('fs'), path = require('path'), vm = require('vm'), { spawnSync } = require('child_process');
-const ROOT = path.join(__dirname, '..'), JS = f => fs.readFileSync(path.join(ROOT, 'src/js', f), 'utf8'), V = process.argv.includes('--verbose');
-const G = { atob:s => Buffer.from(s, 'base64').toString('latin1') };
-vm.runInNewContext(JS('terrain-data.js') + JS('osm-data.js') + JS('geo.js') + '\nthis.o = { OSM, H, inBoard, coastX, osmWaterS, toLL, BX0, BZ0 };', G);
-const { OSM, H, inBoard, coastX, osmWaterS, toLL } = G.o;
+const path = require('path'), { spawnSync } = require('child_process');
+const ROOT = path.join(__dirname, '..'), V = process.argv.includes('--verbose');
+const { OSM, H, inBoard, coastX, osmWaterS, toLL, BX0, BZ0 } = require('../src/js/geo.js');   // ES module (Node ≥ 22.12)
 if (!OSM){ console.log('✗ thiếu src/js/osm-data.js (chạy node tools/fetch-osm.js)'); process.exit(1); }
 const WET = -0.02, rows = []; let bad = 0;
 const wet = (x, z) => inBoard(x, z, 0.5) && H(x, z) < WET;
@@ -47,7 +45,7 @@ const railErr = []; OSM.rails.forEach((r, i) => wetRuns(r, 3).forEach(w => railE
 report('Đường sắt nằm trên đất', railErr, OSM.rails.length, 'tuyến');
 // 5. mặt nước: ô OSM là nước phải thấp hơn mặt biển; đất cách nước 25–100 m phải là đất
 const W = OSM.water; let nW = 0, dryW = 0, nL = 0, wetL = 0; const wErr = [];
-for (let j = 2; j < W.h - 2; j += 3) for (let i = 2; i < W.w - 2; i += 3){ const x = G.o.BX0 + (i + 0.5) * W.step, z = G.o.BZ0 + (j + 0.5) * W.step, s = W.f[j * W.w + i];
+for (let j = 2; j < W.h - 2; j += 3) for (let i = 2; i < W.w - 2; i += 3){ const x = BX0 + (i + 0.5) * W.step, z = BZ0 + (j + 0.5) * W.step, s = W.f[j * W.w + i];
   if (!inBoard(x, z, 1) || x > coastX(z) - 0.5) continue;
   if (s < -0.3){ nW++; if (H(x, z) > 0.02){ dryW++; if (wErr.length < 200) wErr.push('nước OSM thành đất tại ' + ll(x, z)); } }
   else if (s > 0.5 && s < 2){ nL++; if (H(x, z) < WET){ wetL++; if (wErr.length < 200) wErr.push('đất ven nước thành nước tại ' + ll(x, z)); } } }

@@ -37,7 +37,7 @@ const CW = 40, CH = 60, SS = 3;   // ô sprite và hệ số siêu lấy mẫu (
   }, { ROWS, CW, CH, SS });
   await b.close();
   const out = '/* Tự sinh bởi tools/render-crowd.js, đừng sửa tay. Nhân vật: Kenney Mini Characters (CC0, www.kenney.nl). */\n' +
-    'var KENNEY_ROWS = ' + JSON.stringify(ROWS.map(n => n.replace('character-', ''))) + ';\nvar CROWD_SHEET = \'' + png + '\';\n';
+    'export var KENNEY_ROWS = ' + JSON.stringify(ROWS.map(n => n.replace('character-', ''))) + ';\nexport var CROWD_SHEET = \'' + png + '\';\n';
   fs.writeFileSync(path.join(ROOT, 'src/js/crowd-sheet.js'), out); fs.writeFileSync(path.join(ROOT, 'assets/crowd-sheet.webp'), Buffer.from(png.split(',')[1], 'base64'));
   console.log('[crowd] ' + ROWS.length + ' hàng, ' + (out.length / 1024).toFixed(0) + ' KB -> src/js/crowd-sheet.js (bản xem: assets/crowd-sheet.webp)');
 })();

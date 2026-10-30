@@ -1,22 +1,31 @@
+import { THREE } from './three.js';
+import { ST } from '../state.js';
+import { BD, BW, BX0, BX1, BZ0, BZ1, GEO_LABELS, LM_DEF, OSM, P, RAIL, ROADS, ROAD_LABELS, boardClamp, buildGrid, clamp, coastX, genBuildings, genTrees, inBoard, islandAt, lerp, paintGround, segD2, toLL, worldCtx } from './geo.js';
+import { DP, LITE, LM, LMI, LMP, RESORT_HOTELS, SC, _d, anim, applyTod, buildBoats, buildBridges, buildCable, buildCity, buildLamps, buildLandmarks, buildResort, buildSkirt, buildSky, buildTerrain, buildTraffic, buildVegetation, buildWater, camera, carPts, drawOverlays, fail, gy, initDetail, lampK, loader, osmMajorRoads, pickGroups, reduceMotion, renderer, roadPoint, sampleRoad, scene, stage, step, sun, sunDir, updateDetail, waterU } from './scene.js';
+import { buildCrowd } from './crowd.js';
+import { PL, PLAY, buildPlayer, followCamera, joy, syncPlayBtns, teleportTo, toggleMount, updatePlayer } from './player.js';
+import { AU, armAudio, honk, setSound, syncSoundBtn, updateAudio } from './audio.js';
+import { initWeather, realTod, sunPos, syncWxBtn, updateWeather } from './weather.js';
+import { POST, initPost, renderFrame, resizePost } from './post.js';
 /* ======================= CONTROLS, UI, LOOP ======================= */
-var ready = false, shadowDirty = true, frameN = 0;
-var controls = new THREE.OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true; controls.dampingFactor = 0.09; controls.screenSpacePanning = false;
-controls.mouseButtons = { LEFT:THREE.MOUSE.PAN, MIDDLE:THREE.MOUSE.DOLLY, RIGHT:THREE.MOUSE.ROTATE };
-controls.touches = { ONE:THREE.TOUCH.PAN, TWO:THREE.TOUCH.DOLLY_ROTATE };
-controls.minDistance = 3; controls.maxPolarAngle = 1.36; controls.minPolarAngle = 0.06;
-controls.rotateSpeed = 0.6; controls.panSpeed = 1.0; controls.zoomSpeed = 1.0; controls.autoRotateSpeed = 0.3;
+var ready = false; ST.shadowDirty = true; var frameN = 0;
+ST.controls = new THREE.OrbitControls(camera, renderer.domElement);
+ST.controls.enableDamping = true; ST.controls.dampingFactor = 0.09; ST.controls.screenSpacePanning = false;
+ST.controls.mouseButtons = { LEFT:THREE.MOUSE.PAN, MIDDLE:THREE.MOUSE.DOLLY, RIGHT:THREE.MOUSE.ROTATE };
+ST.controls.touches = { ONE:THREE.TOUCH.PAN, TWO:THREE.TOUCH.DOLLY_ROTATE };
+ST.controls.minDistance = 3; ST.controls.maxPolarAngle = 1.36; ST.controls.minPolarAngle = 0.06;
+ST.controls.rotateSpeed = 0.6; ST.controls.panSpeed = 1.0; ST.controls.zoomSpeed = 1.0; ST.controls.autoRotateSpeed = 0.3;
 SC.near = 150; SC.far = 700;
 
 var homeTarget = new THREE.Vector3(-14, 0, -4), homeDist = 400, HOME_PHI = 0.86, HOME_TH = 0.16;
 function computeHome(){ var asp = innerWidth / innerHeight, t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-  homeDist = Math.max(BW * 0.98 / (2 * t * asp), BD * 0.8 / (2 * t)); controls.maxDistance = homeDist * 1.35; scene.fog.near = homeDist * 0.95; scene.fog.far = homeDist * 3.2; }
-function setCam(target, r, phi, th){ controls.target.copy(target); camera.position.set(target.x + r * Math.sin(phi) * Math.sin(th), target.y + r * Math.cos(phi), target.z + r * Math.sin(phi) * Math.cos(th)); camera.lookAt(target); }
+  homeDist = Math.max(BW * 0.98 / (2 * t * asp), BD * 0.8 / (2 * t)); ST.controls.maxDistance = homeDist * 1.35; scene.fog.near = homeDist * 0.95; scene.fog.far = homeDist * 3.2; }
+function setCam(target, r, phi, th){ ST.controls.target.copy(target); camera.position.set(target.x + r * Math.sin(phi) * Math.sin(th), target.y + r * Math.cos(phi), target.z + r * Math.sin(phi) * Math.cos(th)); camera.lookAt(target); }
 addEventListener('resize', function(){ renderer.setSize(innerWidth, innerHeight); resizePost(); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); computeHome(); labels.forEach(function(l){ l.w = 0; }); });
 
 var ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 function setNdc(e){ var r = renderer.domElement.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, camera); }
-function surfY(x, z){ return inBoard(x, z, 0) ? Math.max(G.hAt(x, z), 0) : -60; }
+function surfY(x, z){ return inBoard(x, z, 0) ? Math.max(ST.G.hAt(x, z), 0) : -60; }
 function groundHit(r){ var o = r.origin, d = r.direction, t = 0, st = 0.2;
   for (var i = 0; i < 700; i++){ var x = o.x + d.x * t, y = o.y + d.y * t, z = o.z + d.z * t;
     if (y <= surfY(x, z)){ var a = Math.max(0, t - st), b = t; for (var k = 0; k < 12; k++){ var m = (a + b) / 2; if (o.y + d.y * m <= surfY(o.x + d.x * m, o.z + d.z * m)) b = m; else a = m; }
@@ -25,36 +34,36 @@ function groundHit(r){ var o = r.origin, d = r.direction, t = 0, st = 0.2;
   return null; }
 stage.addEventListener('wheel', function(e){ if (!ready) return; e.preventDefault(); e.stopPropagation();
   var dy = e.deltaY * (e.deltaMode === 1 ? 16 : 1), k = Math.exp(clamp(dy, -150, 150) * 0.0016);
-  if (PLAY.on){ var off = camera.position.clone().sub(controls.target), nl = clamp(off.length() * k, controls.minDistance, controls.maxDistance); camera.position.copy(controls.target).add(off.setLength(nl)); return; }
-  var dist = camera.position.distanceTo(controls.target), nd = clamp(dist * k, controls.minDistance, controls.maxDistance); k = nd / dist;
-  setNdc(e); var hit = groundHit(ray.ray) || controls.target.clone();
-  controls.target.sub(hit).multiplyScalar(k).add(hit); camera.position.sub(hit).multiplyScalar(k).add(hit);
-  if (controls.autoRotate) setSpin(false); hideHint(); }, { capture:true, passive:false });
+  if (PLAY.on){ var off = camera.position.clone().sub(ST.controls.target), nl = clamp(off.length() * k, ST.controls.minDistance, ST.controls.maxDistance); camera.position.copy(ST.controls.target).add(off.setLength(nl)); return; }
+  var dist = camera.position.distanceTo(ST.controls.target), nd = clamp(dist * k, ST.controls.minDistance, ST.controls.maxDistance); k = nd / dist;
+  setNdc(e); var hit = groundHit(ray.ray) || ST.controls.target.clone();
+  ST.controls.target.sub(hit).multiplyScalar(k).add(hit); camera.position.sub(hit).multiplyScalar(k).add(hit);
+  if (ST.controls.autoRotate) setSpin(false); hideHint(); }, { capture:true, passive:false });
 
 /* ---------- camera fly ---------- */
 var tween = null;
-function sphOf(){ var o = camera.position.clone().sub(controls.target), r = o.length(); return { r:r, phi:Math.acos(clamp(o.y / r, -1, 1)), th:Math.atan2(o.x, o.z) }; }
+function sphOf(){ var o = camera.position.clone().sub(ST.controls.target), r = o.length(); return { r:r, phi:Math.acos(clamp(o.y / r, -1, 1)), th:Math.atan2(o.x, o.z) }; }
 function flyTo(target, r, phi, th, dur){ var s = sphOf(); if (th == null) th = s.th; var dth = Math.atan2(Math.sin(th - s.th), Math.cos(th - s.th));
-  tween = { t0:performance.now(), dur:reduceMotion ? 1 : (dur || 1500), ft:controls.target.clone(), tt:target.clone(), fr:s.r, tr:r, fp:s.phi, tp:phi, fth:s.th, dth:dth };
-  controls.enableDamping = false; controls.enabled = false; controls.update(); }
+  tween = { t0:performance.now(), dur:reduceMotion ? 1 : (dur || 1500), ft:ST.controls.target.clone(), tt:target.clone(), fr:s.r, tr:r, fp:s.phi, tp:phi, fth:s.th, dth:dth };
+  ST.controls.enableDamping = false; ST.controls.enabled = false; ST.controls.update(); }
 function stepTween(now){ var u = Math.min(1, (now - tween.t0) / tween.dur), e = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
   var tg = new THREE.Vector3().lerpVectors(tween.ft, tween.tt, e), r = Math.exp(lerp(Math.log(tween.fr), Math.log(tween.tr), e)), lift = Math.sin(Math.PI * e) * Math.min(tween.fr, tween.tr) * 0.25;
   setCam(tg, r + lift, lerp(tween.fp, tween.tp, e), tween.fth + tween.dth * e);
-  if (u >= 1){ tween = null; controls.enableDamping = true; controls.enabled = true; } }
-function constrain(){ var tg = controls.target, c = boardClamp(clamp(tg.x, BX0 + 8, BX1 - 8), clamp(tg.z, BZ0 + 8, BZ1 - 8)), dx = c[0] - tg.x, dz = c[1] - tg.z;
+  if (u >= 1){ tween = null; ST.controls.enableDamping = true; ST.controls.enabled = true; } }
+function constrain(){ var tg = ST.controls.target, c = boardClamp(clamp(tg.x, BX0 + 8, BX1 - 8), clamp(tg.z, BZ0 + 8, BZ1 - 8)), dx = c[0] - tg.x, dz = c[1] - tg.z;
   if (dx || dz){ tg.x += dx; tg.z += dz; camera.position.x += dx; camera.position.z += dz; }
-  if (!tween && !PLAY.on){ var dy = (Math.max(G.hAt(tg.x, tg.z), 0) * 0.85) - tg.y; if (Math.abs(dy) > 0.002){ tg.y += dy * 0.12; camera.position.y += dy * 0.12; } }
+  if (!tween && !PLAY.on){ var dy = (Math.max(ST.G.hAt(tg.x, tg.z), 0) * 0.85) - tg.y; if (Math.abs(dy) > 0.002){ tg.y += dy * 0.12; camera.position.y += dy * 0.12; } }
   var gc = surfY(camera.position.x, camera.position.z) + 0.35; if (camera.position.y < gc) camera.position.y = gc; }
 
 /* ---------- shadows follow the view ---------- */
 var shadowKey = [1e9, 1e9, 0];
 function updateShadow(dist){
-  var half = clamp(dist * 0.75, 9, 240), hq = Math.pow(1.15, Math.round(Math.log(half) / Math.log(1.15))), tex = 2 * hq / sun.shadow.mapSize.x, tg = controls.target;
+  var half = clamp(dist * 0.75, 9, 240), hq = Math.pow(1.15, Math.round(Math.log(half) / Math.log(1.15))), tex = 2 * hq / sun.shadow.mapSize.x, tg = ST.controls.target;
   var cx = Math.round(tg.x / (tex * 4)) * tex * 4, cz = Math.round(tg.z / (tex * 4)) * tex * 4;
-  if (shadowDirty || hq !== shadowKey[2] || cx !== shadowKey[0] || cz !== shadowKey[1]){
+  if (ST.shadowDirty || hq !== shadowKey[2] || cx !== shadowKey[0] || cz !== shadowKey[1]){
     SC.left = -hq; SC.right = hq; SC.top = hq; SC.bottom = -hq; SC.updateProjectionMatrix();
     sun.target.position.set(cx, 0, cz); sun.position.set(cx + sunDir.x * 400, sunDir.y * 400, cz + sunDir.z * 400); sun.target.updateMatrixWorld();
-    shadowKey = [cx, cz, hq]; shadowDirty = false; renderer.shadowMap.needsUpdate = true;
+    shadowKey = [cx, cz, hq]; ST.shadowDirty = false; renderer.shadowMap.needsUpdate = true;
   } else if (dist < 90 && frameN % 3 === 0) renderer.shadowMap.needsUpdate = true;
 }
 
@@ -74,9 +83,9 @@ function makeLabels(){
   LM.forEach(function(L){ var el = document.createElement('button'); el.type = 'button'; el.className = 'lbl'; el.innerHTML = '<span class="pill"><i></i></span><span class="stem"></span>'; el.firstChild.appendChild(document.createTextNode(L.name));
     el.setAttribute('aria-label', L.name); el.addEventListener('click', function(){ select(L.i); }); labelLayer.appendChild(el); labels.push({ el:el, pos:L.anchor, lm:L, kind:'lm', vis:true }); });
   GEO_LABELS.forEach(function(g){ var p = P(g.ll[0], g.ll[1]), el = document.createElement('div'); el.className = 'geo'; el.textContent = g.t; labelLayer.appendChild(el);
-    labels.push({ el:el, pos:new THREE.Vector3(p[0], Math.max(G.hAt(p[0], p[1]), 0) + g.y, p[1]), kind:'geo', max:g.max, vis:true }); });
+    labels.push({ el:el, pos:new THREE.Vector3(p[0], Math.max(ST.G.hAt(p[0], p[1]), 0) + g.y, p[1]), kind:'geo', max:g.max, vis:true }); });
   roadLabels().forEach(function(g){ var x = g.x, z = g.z; if (x == null){ z = P(g.ll[0], 0)[1]; x = g.ll[1] == null ? coastX(z) - g.off : P(g.ll[0], g.ll[1])[0]; }
-    var el = document.createElement('div'); el.className = g.minor ? 'road minor' : 'road'; el.textContent = g.t; labelLayer.appendChild(el); var y = Math.max(G.hAt(x, z), 0) + 0.3;
+    var el = document.createElement('div'); el.className = g.minor ? 'road minor' : 'road'; el.textContent = g.t; labelLayer.appendChild(el); var y = Math.max(ST.G.hAt(x, z), 0) + 0.3;
     labels.push({ el:el, pos:new THREE.Vector3(x, y, z), dir:g.dx != null ? new THREE.Vector3(x + g.dx, y, z + g.dz) : null, kind:'road', minor:!!g.minor, vis:true }); });
   labels.forEach(function(l){ l.el.style.visibility = 'hidden'; l.vis = false; }); }
 // Nhãn tên đường: có OSM thì lấy tên thật của đường lớn (đặt ở giữa đoạn dài nhất mang tên đó), không thì dùng ROAD_LABELS ước lượng
@@ -89,10 +98,10 @@ function roadLabels(){ if (!OSM) return ROAD_LABELS; var out = [], byName = {};
     list.forEach(function(R){ var Q = R.pts, acc = step * 0.5, L = 0;
       for (var i = 0; i < Q.length - 1; i++){ var dx = Q[i + 1][0] - Q[i][0], dz = Q[i + 1][1] - Q[i][1], l = Math.hypot(dx, dz); L += l;
         while (acc < L && l > 0.3){ var f = 1 - (L - acc) / l, x = Q[i][0] + dx * f, z = Q[i][1] + dz * f; acc += step;
-          if (!inBoard(x, z, 1) || G.hAt(x, z) < 0.05 || got.some(function(q){ return Math.hypot(q[0] - x, q[1] - z) < gap; })) continue;
+          if (!inBoard(x, z, 1) || ST.G.hAt(x, z) < 0.05 || got.some(function(q){ return Math.hypot(q[0] - x, q[1] - z) < gap; })) continue;
           got.push([x, z]); out.push({ t:t, x:x, z:z, dx:dx / l, dz:dz / l, minor:minor }); } }
       if (!got.length && L > (minor ? 3 : 4)){ var m = Q[Q.length >> 1], m2 = Q[Math.min(Q.length - 1, (Q.length >> 1) + 1)], ml = Math.hypot(m2[0] - m[0], m2[1] - m[1]) || 1;   // đường ngắn: một nhãn giữa đường
-        if (G.hAt(m[0], m[1]) > 0.05){ got.push(m); out.push({ t:t, x:m[0], z:m[1], dx:(m2[0] - m[0]) / ml, dz:(m2[1] - m[1]) / ml, minor:minor }); } } }); });
+        if (ST.G.hAt(m[0], m[1]) > 0.05){ got.push(m); out.push({ t:t, x:m[0], z:m[1], dx:(m2[0] - m[0]) / ml, dz:(m2[1] - m[1]) / ml, minor:minor }); } } }); });
   return out; }
 function hits(x0, y0, x1, y1){ for (var i = 0; i < placed.length; i++){ var p = placed[i]; if (x0 < p[2] && x1 > p[0] && y0 < p[3] && y1 > p[1]) return true; } return false; }
 function prio(L){ return (L.lm && L.lm.i === current) ? -1e9 : (L.kind === 'geo' ? 40 : (L.kind === 'road' ? (L.minor ? 90 : 60) : 0)); }
@@ -102,7 +111,7 @@ function updateLabels(dist){
     var isSel = L.lm && L.lm.i === current;
     if (!labelsOn && !isSel) continue;
     if (L.kind === 'geo' && dist > homeDist * L.max) continue;
-    if (L.kind === 'road' && (dist > (L.minor ? 24 : 60) || Math.abs(L.pos.x - controls.target.x) + Math.abs(L.pos.z - controls.target.z) > dist * 2.2)) continue;
+    if (L.kind === 'road' && (dist > (L.minor ? 24 : 60) || Math.abs(L.pos.x - ST.controls.target.x) + Math.abs(L.pos.z - ST.controls.target.z) > dist * 2.2)) continue;
     pv.copy(L.pos).project(camera);
     if (!(pv.z < 1 && pv.x > -1.1 && pv.x < 1.1 && pv.y > -1.15 && pv.y < 1.2)) continue;
     L.sx = (pv.x * 0.5 + 0.5) * w; L.sy = (-pv.y * 0.5 + 0.5) * h; L.d = camera.position.distanceTo(L.pos); cand.push(L); }
@@ -123,25 +132,25 @@ function updateLabels(dist){
 /* ---------- HUD ---------- */
 var needle = document.getElementById('needle'), scaleBar = document.getElementById('scaleBar'), scaleText = document.getElementById('scaleText'), coordEl = document.getElementById('coord');
 function dms(v, hemi){ var d = Math.floor(v), m = (v - d) * 60, mi = Math.floor(m), s = Math.round((m - mi) * 60); if (s === 60){ s = 0; mi++; } return d + '°' + (mi < 10 ? '0' : '') + mi + '′' + (s < 10 ? '0' : '') + s + '″' + hemi; }
-function updateHud(dist){ needle.setAttribute('transform', 'rotate(' + (controls.getAzimuthalAngle() * 180 / Math.PI).toFixed(1) + ' 24 24)');
+function updateHud(dist){ needle.setAttribute('transform', 'rotate(' + (ST.controls.getAzimuthalAngle() * 180 / Math.PI).toFixed(1) + ' 24 24)');
   if (frameN % 6) return;
   var wpp = 2 * dist * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / innerHeight, maxM = 120 * wpp * 50, m = 20;
   [20, 50, 100, 200, 500, 1000, 2000, 5000].forEach(function(s){ if (s <= maxM) m = s; });
   scaleBar.style.width = Math.round(m / 50 / wpp) + 'px'; scaleText.textContent = m >= 1000 ? (m / 1000) + ' km' : m + ' m';
-  var ll = toLL(controls.target.x, controls.target.z); coordEl.textContent = dms(ll[0], 'B') + ' · ' + dms(ll[1], 'Đ'); }
+  var ll = toLL(ST.controls.target.x, ST.controls.target.z); coordEl.textContent = dms(ll[0], 'B') + ' · ' + dms(ll[1], 'Đ'); }
 
 /* ---------- UI wiring ---------- */
 var hint = document.getElementById('hint'), hintGone = false;
 function hideHint(){ if (!hintGone){ hintGone = true; hint.classList.add('gone'); } }
 var btnSpin = document.getElementById('btnSpin');
-function setSpin(on){ controls.autoRotate = on; btnSpin.setAttribute('aria-pressed', String(on)); }
+function setSpin(on){ ST.controls.autoRotate = on; btnSpin.setAttribute('aria-pressed', String(on)); }
 var btnLabels = document.getElementById('btnLabels');
 function syncLabelsBtn(){ btnLabels.setAttribute('aria-pressed', String(labelsOn)); btnLabels.setAttribute('aria-label', labelsOn ? 'Ẩn bảng tên' : 'Hiện bảng tên'); }
 function toggleLabels(){ labelsOn = !labelsOn; try { localStorage.setItem('nt3d-labels', labelsOn ? '1' : '0'); } catch (e){} syncLabelsBtn(); }
 var btnTime = document.getElementById('btnTime'), btnTimeText = document.getElementById('btnTimeText'), TOD_NAMES = ['Ban ngày', 'Hoàng hôn', 'Ban đêm'];
-function syncTimeBtn(){ var i = Math.round(todTarget), name = WX.real ? 'Giờ thật' : TOD_NAMES[i]; btnTimeText.textContent = name; btnTime.setAttribute('aria-label', 'Đổi thời điểm, hiện là ' + name.toLowerCase()); btnTime.dataset.tod = String(i); }
+function syncTimeBtn(){ var i = Math.round(ST.todTarget), name = ST.WX.real ? 'Giờ thật' : TOD_NAMES[i]; btnTimeText.textContent = name; btnTime.setAttribute('aria-label', 'Đổi thời điểm, hiện là ' + name.toLowerCase()); btnTime.dataset.tod = String(i); }
 function themeIsDark(){ var t = document.documentElement.getAttribute('data-theme'); if (t === 'dark') return true; if (t === 'light') return false; return matchMedia('(prefers-color-scheme: dark)').matches; }
-function onSchemeChange(){ if (todUser || WX.real || !ready) return; todTarget = themeIsDark() ? 2 : 0; syncTimeBtn(); }
+function onSchemeChange(){ if (ST.todUser || ST.WX.real || !ready) return; ST.todTarget = themeIsDark() ? 2 : 0; syncTimeBtn(); }
 var rail = document.getElementById('rail'), chips = [], card = document.getElementById('card');
 function select(i){ var L = LM[i]; current = i; hideHint();
   document.getElementById('cardTag').textContent = L.cat; document.getElementById('cardTitle').textContent = L.name; document.getElementById('cardDesc').textContent = L.desc;
@@ -151,11 +160,11 @@ function select(i){ var L = LM[i]; current = i; hideHint();
   labels.forEach(function(l){ if (l.lm) l.el.classList.toggle('on', l.lm === L); });
   chips.forEach(function(c, ci){ c.setAttribute('aria-pressed', String(ci === i)); });
   try { chips[i].scrollIntoView({ inline:'center', block:'nearest', behavior:reduceMotion ? 'auto' : 'smooth' }); } catch (e){}
-  if (L.ring){ ring.visible = true; ring.position.set(L.anchor.x, L.base + 0.08, L.anchor.z); ring.userData.r = L.ring; } else ring.visible = false;
+  if (L.ring){ ST.ring.visible = true; ST.ring.position.set(L.anchor.x, L.base + 0.08, L.anchor.z); ST.ring.userData.r = L.ring; } else ST.ring.visible = false;
   document.getElementById('cardGo').hidden = !PLAY.on;
   if (PLAY.on) return;
   setSpin(false); flyTo(L.focus, L.zoom * (innerWidth < 620 ? 1.4 : 1), 0.95, sphOf().th); }
-function closeCard(){ current = -1; card.hidden = true; document.body.classList.remove('has-card'); ring.visible = false;
+function closeCard(){ current = -1; card.hidden = true; document.body.classList.remove('has-card'); ST.ring.visible = false;
   labels.forEach(function(l){ if (l.lm) l.el.classList.remove('on'); }); chips.forEach(function(c){ c.setAttribute('aria-pressed', 'false'); }); }
 function pickAt(e){ setNdc(e);
   var hitsG = ray.intersectObjects(pickGroups, true); for (var i = 0; i < hitsG.length; i++){ var o = hitsG[i].object; while (o && !o.userData.lmId) o = o.parent; if (o) return LMI[o.userData.lmId]; }
@@ -172,13 +181,13 @@ function setupUI(){
   addEventListener('keydown', function(e){ if ((e.key === 'l' || e.key === 'L') && !e.metaKey && !e.ctrlKey && !e.altKey && !(e.target.closest && e.target.closest('input,textarea'))) toggleLabels(); });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function(){ labels.forEach(function(l){ l.w = 0; }); });
   // Giờ thật → Ban ngày → Hoàng hôn → Ban đêm → Giờ thật
-  btnTime.addEventListener('click', function(){ todUser = true;
-    if (WX.real){ WX.real = false; todTarget = 0; } else if (Math.round(todTarget) === 2){ WX.real = true; todTarget = realTod(); } else todTarget = Math.round(todTarget) + 1;
-    if (reduceMotion){ tod = todTarget; } applyTod(tod); syncTimeBtn(); });
+  btnTime.addEventListener('click', function(){ ST.todUser = true;
+    if (ST.WX.real){ ST.WX.real = false; ST.todTarget = 0; } else if (Math.round(ST.todTarget) === 2){ ST.WX.real = true; ST.todTarget = realTod(); } else ST.todTarget = Math.round(ST.todTarget) + 1;
+    if (reduceMotion){ ST.tod = ST.todTarget; } applyTod(ST.tod); syncTimeBtn(); });
   try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', onSchemeChange); } catch (e){}
   new MutationObserver(onSchemeChange).observe(document.documentElement, { attributes:true, attributeFilter:['data-theme'] });
-  btnSpin.addEventListener('click', function(){ setSpin(!controls.autoRotate); });
-  controls.addEventListener('start', function(){ if (controls.autoRotate) setSpin(false); hideHint(); });
+  btnSpin.addEventListener('click', function(){ setSpin(!ST.controls.autoRotate); });
+  ST.controls.addEventListener('start', function(){ if (ST.controls.autoRotate) setSpin(false); hideHint(); });
   document.getElementById('btnHome').addEventListener('click', function(){ closeCard(); flyTo(homeTarget, homeDist, HOME_PHI, HOME_TH, 1700); });
   var menuBtn = document.getElementById('btnMenu'), menu = document.getElementById('toolMenu');   // menu thả xuống: các nút ít dùng
   function setMenu(open){ menu.hidden = !open; menuBtn.setAttribute('aria-expanded', String(open)); }
@@ -187,15 +196,15 @@ function setupUI(){
   addEventListener('keydown', function(e){ if (e.key === 'Escape' && !menu.hidden){ setMenu(false); menuBtn.focus(); } });
   document.getElementById('btnHome').addEventListener('click', function(){ setMenu(false); });
   document.getElementById('btnLocate').addEventListener('click', toggleLocate); document.getElementById('locClose').addEventListener('click', function(){ locInfo.hidden = true; });
-  document.getElementById('compass').addEventListener('click', function(){ var s = sphOf(); flyTo(controls.target.clone(), s.r, s.phi, 0, 900); });
+  document.getElementById('compass').addEventListener('click', function(){ var s = sphOf(); flyTo(ST.controls.target.clone(), s.r, s.phi, 0, 900); });
   // nút xoay 45° và chuyển 2D (nhìn thẳng xuống) / 3D (nhìn nghiêng) cho ai khó dùng cử chỉ
-  function turn(d){ if (tween) return; var s = sphOf(); setSpin(false); flyTo(controls.target.clone(), s.r, s.phi, s.th + d, 450); }
+  function turn(d){ if (tween) return; var s = sphOf(); setSpin(false); flyTo(ST.controls.target.clone(), s.r, s.phi, s.th + d, 450); }
   document.getElementById('rotL').addEventListener('click', function(){ turn(-Math.PI / 4); });
   document.getElementById('rotR').addEventListener('click', function(){ turn(Math.PI / 4); });
   var tiltBtn = document.getElementById('tilt');
   function syncTilt(){ var flat = sphOf().phi < 0.3; tiltBtn.textContent = flat ? '3D' : '2D'; tiltBtn.setAttribute('aria-label', flat ? 'Nhìn nghiêng (3D)' : 'Nhìn thẳng từ trên xuống (2D)'); }
-  tiltBtn.addEventListener('click', function(){ if (tween) return; var s = sphOf(), flat = s.phi < 0.3; setSpin(false); flyTo(controls.target.clone(), s.r, flat ? (PLAY.on ? 1.1 : HOME_PHI) : controls.minPolarAngle, s.th, 600); setTimeout(syncTilt, 650); });
-  controls.addEventListener('end', syncTilt); syncTilt();
+  tiltBtn.addEventListener('click', function(){ if (tween) return; var s = sphOf(), flat = s.phi < 0.3; setSpin(false); flyTo(ST.controls.target.clone(), s.r, flat ? (PLAY.on ? 1.1 : HOME_PHI) : ST.controls.minPolarAngle, s.th, 600); setTimeout(syncTilt, 650); });
+  ST.controls.addEventListener('end', syncTilt); syncTilt();
   addEventListener('keydown', function(e){ if (PLAY.on || e.metaKey || e.ctrlKey || e.altKey || (e.target.closest && e.target.closest('input,textarea'))) return;   // Q/E xoay, T đổi 2D/3D
     if (e.key === 'q' || e.key === 'Q') turn(-Math.PI / 4); else if (e.key === 'e' || e.key === 'E') turn(Math.PI / 4); else if (e.key === 't' || e.key === 'T') tiltBtn.click(); });
   setTimeout(hideHint, 10000);
@@ -217,39 +226,39 @@ function setupUI(){
 /* ---------- play mode ---------- */
 var saved = null;
 function enterPlay(){ if (PLAY.on || !PL) return; PLAY.on = true; PLAY.lastDrag = 0; document.body.classList.add('playing'); closeCard(); setSpin(false); hideHint();
-  saved = { min:controls.minDistance, max:controls.maxDistance, pol:controls.maxPolarAngle };
-  controls.enablePan = false; controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE; controls.touches.ONE = THREE.TOUCH.ROTATE; controls.minDistance = 0.35; controls.maxDistance = 9; controls.maxPolarAngle = 1.45;
+  saved = { min:ST.controls.minDistance, max:ST.controls.maxDistance, pol:ST.controls.maxPolarAngle };
+  ST.controls.enablePan = false; ST.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE; ST.controls.touches.ONE = THREE.TOUCH.ROTATE; ST.controls.minDistance = 0.35; ST.controls.maxDistance = 9; ST.controls.maxPolarAngle = 1.45;
   document.getElementById('btnPlay').setAttribute('aria-pressed', 'true'); document.getElementById('playHud').hidden = false; syncPlayBtns(); DP.valid = false;
   flyTo(new THREE.Vector3(PL.x, PL.y + 0.09, PL.z), 1.5, 1.08, PL.yaw + Math.PI, 1600); }
-function setBoost(on){ boostBtn = on; var bb = document.getElementById('btnBoost'); if (bb){ bb.setAttribute('aria-pressed', String(on)); bb.textContent = on ? 'Đang tăng ga' : 'Tăng ga'; } }
-function exitPlay(){ if (!PLAY.on) return; PLAY.on = false; setBoost(false); document.body.classList.remove('playing'); keys = {}; joy.on = false; joy.x = joy.y = 0;
-  controls.enablePan = true; controls.mouseButtons.LEFT = THREE.MOUSE.PAN; controls.touches.ONE = THREE.TOUCH.PAN; controls.minDistance = saved.min; controls.maxDistance = saved.max; controls.maxPolarAngle = saved.pol;
+function setBoost(on){ ST.boostBtn = on; var bb = document.getElementById('btnBoost'); if (bb){ bb.setAttribute('aria-pressed', String(on)); bb.textContent = on ? 'Đang tăng ga' : 'Tăng ga'; } }
+function exitPlay(){ if (!PLAY.on) return; PLAY.on = false; setBoost(false); document.body.classList.remove('playing'); ST.keys = {}; joy.on = false; joy.x = joy.y = 0;
+  ST.controls.enablePan = true; ST.controls.mouseButtons.LEFT = THREE.MOUSE.PAN; ST.controls.touches.ONE = THREE.TOUCH.PAN; ST.controls.minDistance = saved.min; ST.controls.maxDistance = saved.max; ST.controls.maxPolarAngle = saved.pol;
   document.getElementById('btnPlay').setAttribute('aria-pressed', 'false'); document.getElementById('playHud').hidden = true;
   var s2 = sphOf(); flyTo(new THREE.Vector3(PL.x, 0, PL.z), 26, 0.9, s2.th, 1300); }
 function setupPlay(){
   var bp = document.getElementById('btnPlay'); bp.addEventListener('click', function(){ if (PLAY.on) exitPlay(); else enterPlay(); });
   var MOVE = { KeyW:1, KeyA:1, KeyS:1, KeyD:1, ArrowUp:1, ArrowDown:1, ArrowLeft:1, ArrowRight:1, ShiftLeft:1, ShiftRight:1, Space:1 };
   addEventListener('keydown', function(e){ if (!PLAY.on) return; if (e.target.closest && e.target.closest('input,textarea')) return;
-    if (MOVE[e.code]){ keys[e.code] = true; e.preventDefault(); }
+    if (MOVE[e.code]){ ST.keys[e.code] = true; e.preventDefault(); }
     if (e.code === 'KeyE' && !e.repeat){ toggleMount(); e.preventDefault(); }
     if (e.code === 'KeyH' && !e.repeat){ honk(); e.preventDefault(); }
     if (e.code === 'Escape' && current < 0) exitPlay(); }, true);
-  addEventListener('keyup', function(e){ if (MOVE[e.code]) keys[e.code] = false; });
-  addEventListener('blur', function(){ keys = {}; });
+  addEventListener('keyup', function(e){ if (MOVE[e.code]) ST.keys[e.code] = false; });
+  addEventListener('blur', function(){ ST.keys = {}; });
   document.getElementById('btnMount').addEventListener('click', function(){ toggleMount(); });
   document.getElementById('btnHorn').addEventListener('click', honk);
   ['playHud', 'joy'].forEach(function(id){ document.getElementById(id).addEventListener('contextmenu', function(e){ e.preventDefault(); }); });
   var bb = document.getElementById('btnBoost');
   // Tăng ga dạng công tắc: chạm một lần để giữ ga, chạm lần nữa để nhả (không phải giữ ngón tay)
-  bb.addEventListener('pointerdown', function(e){ e.preventDefault(); setBoost(!boostBtn); });
+  bb.addEventListener('pointerdown', function(e){ e.preventDefault(); setBoost(!ST.boostBtn); });
   var jz = document.getElementById('joy'), knob = document.getElementById('joyKnob'), jid = null;
   function jset(e){ var r = jz.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, dx = e.clientX - cx, dy = e.clientY - cy, R2 = r.width / 2, l = Math.hypot(dx, dy); if (l > R2){ dx *= R2 / l; dy *= R2 / l; }
     joy.x = dx / R2; joy.y = -dy / R2; knob.style.transform = 'translate(' + dx.toFixed(0) + 'px,' + dy.toFixed(0) + 'px)'; }
   jz.addEventListener('pointerdown', function(e){ jid = e.pointerId; jz.setPointerCapture(jid); joy.on = true; jset(e); e.preventDefault(); });
   jz.addEventListener('pointermove', function(e){ if (e.pointerId === jid) jset(e); });
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function(ev){ jz.addEventListener(ev, function(){ jid = null; joy.on = false; joy.x = joy.y = 0; knob.style.transform = ''; }); });
-  controls.addEventListener('start', function(){ PLAY.dragging = true; PLAY.lastDrag = performance.now() / 1000; });
-  controls.addEventListener('end', function(){ PLAY.dragging = false; PLAY.lastDrag = performance.now() / 1000; });
+  ST.controls.addEventListener('start', function(){ PLAY.dragging = true; PLAY.lastDrag = performance.now() / 1000; });
+  ST.controls.addEventListener('end', function(){ PLAY.dragging = false; PLAY.lastDrag = performance.now() / 1000; });
   document.getElementById('cardGo').addEventListener('click', function(){ if (current >= 0){ teleportTo(LM[current]); closeCard(); } });
 }
 
@@ -274,8 +283,8 @@ function updateAnim(dt, ts){
     for (var key in ims) ims[key].instanceMatrix.needsUpdate = true;
     if (lampK > 0.01) carPts.geometry.attributes.position.needsUpdate = true; }
   var T = anim.train;
-  if (T && RAIL_S){ if (T.wait > 0) T.wait -= dt; else { T.s += T.dir * 1.2 * dt; if (T.s > RAIL_S.L - 1 || T.s < 6){ T.s = clamp(T.s, 6, RAIL_S.L - 1); T.dir *= -1; T.wait = 14; } }
-    for (i = 0; i < 10; i++){ roadPoint(RAIL_S, clamp(T.s - T.dir * i * 0.6, 0, RAIL_S.L), vp); _d.position.set(vp.x, vp.y + 0.02, vp.z); _d.rotation.set(0, Math.atan2(vp.fx * T.dir, vp.fz * T.dir), 0); _d.scale.copy(i ? T.kc : T.kl); _d.updateMatrix(); (i ? T.im : T.loco).setMatrixAt(i ? i - 1 : 0, _d.matrix); }
+  if (T && ST.RAIL_S){ if (T.wait > 0) T.wait -= dt; else { T.s += T.dir * 1.2 * dt; if (T.s > ST.RAIL_S.L - 1 || T.s < 6){ T.s = clamp(T.s, 6, ST.RAIL_S.L - 1); T.dir *= -1; T.wait = 14; } }
+    for (i = 0; i < 10; i++){ roadPoint(ST.RAIL_S, clamp(T.s - T.dir * i * 0.6, 0, ST.RAIL_S.L), vp); _d.position.set(vp.x, vp.y + 0.02, vp.z); _d.rotation.set(0, Math.atan2(vp.fx * T.dir, vp.fz * T.dir), 0); _d.scale.copy(i ? T.kc : T.kl); _d.updateMatrix(); (i ? T.im : T.loco).setMatrixAt(i ? i - 1 : 0, _d.matrix); }
     T.im.instanceMatrix.needsUpdate = true; T.loco.instanceMatrix.needsUpdate = true; }
   if (anim.birds){ var B = anim.birds; B.list.forEach(function(q, k){ q.a += q.sp * dt; var x = q.cx + Math.cos(q.a) * q.r, z = q.cz + Math.sin(q.a) * q.r; _d.position.set(x, q.h + 0.3 * Math.sin(ts * 0.7 + q.f), z);
       _d.rotation.set(0, Math.atan2(-Math.sin(q.a) * q.sp, Math.cos(q.a) * q.sp) + Math.PI / 2, 0); _d.scale.set(1.3, 0.3 + 1.2 * Math.abs(Math.sin(ts * 7 + q.f)), 1.3); _d.updateMatrix(); B.im.setMatrixAt(k, _d.matrix); });
@@ -286,7 +295,7 @@ function updateAnim(dt, ts){
     PS.boat.position.set(bx, -0.03, bz); PS.boat.rotation.y = Math.atan2(-tx, -tz);
     PS.chute.position.set(bx - tx * 2.4, 2.6 + 0.15 * Math.sin(ts), bz - tz * 2.4); PS.chute.rotation.y = Math.atan2(tx, tz);
     var lp = PS.line.geometry.attributes.position; lp.setXYZ(0, bx, 0.12, bz); lp.setXYZ(1, bx - tx * 2.4, 2.05 + 0.15 * Math.sin(ts), bz - tz * 2.4); lp.needsUpdate = true; }
-  if (ring && ring.visible){ var k = ring.userData.r * (1 + 0.06 * Math.sin(ts * 3)); ring.scale.set(k, 1, k); }
+  if (ST.ring && ST.ring.visible){ var k = ST.ring.userData.r * (1 + 0.06 * Math.sin(ts * 3)); ST.ring.scale.set(k, 1, k); }
 }
 
 // THREE.Clock đã deprecated từ r183: đồng hồ tối giản (giây thực, getDelta, elapsedTime)
@@ -311,7 +320,7 @@ function onPos(pos){ var lat = pos.coords.latitude, lon = pos.coords.longitude, 
   if (!inBoard(x, z, 0)){ var km = Math.hypot(x - homeTarget.x, z - homeTarget.z) * 0.05;
     locMsg('<b>Bạn đang ở ngoài bản đồ</b>' + dms(lat, 'B') + ' · ' + dms(lon, 'Đ') + '<br><small>Cách trung tâm Nha Trang khoảng ' + (km < 100 ? km.toFixed(1) : Math.round(km)) + ' km</small>');
     if (LOC.marker) LOC.marker.visible = LOC.acc.visible = false; return; }
-  if (!LOC.marker) LOC.marker = locMarker(); LOC.x = x; LOC.z = z; var y = Math.max(G.hAt(x, z), 0) + 0.06;
+  if (!LOC.marker) LOC.marker = locMarker(); LOC.x = x; LOC.z = z; var y = Math.max(ST.G.hAt(x, z), 0) + 0.06;
   LOC.marker.position.set(x, y, z); LOC.acc.position.set(x, y - 0.02, z); LOC.acc.scale.setScalar(Math.max(accM / 50, 0.05)); LOC.marker.visible = LOC.acc.visible = true;
   var w = whereIs(x, z), html = '<b>' + (w.road ? esc(/^(Đường|Hẻm|Kiệt|Ngõ|Cầu|Quốc lộ|Tỉnh lộ|Đại lộ)/i.test(w.road) ? w.road : 'Đường ' + w.road) : 'Bạn đang ở đây') + '</b>';
   if (w.lm) html += 'Cách ' + esc(w.lm.name) + ' ' + (w.lmM >= 1000 ? (w.lmM / 1000).toFixed(1) + ' km' : w.lmM + ' m') + '<br>';
@@ -333,66 +342,66 @@ function frame(now){
   requestAnimationFrame(frame);
   var rawDt = clock.getDelta(), dt = Math.min(rawDt, 0.05), ts = clock.elapsedTime * (reduceMotion ? 0.3 : 1); frameN++;
   if (waterU) waterU.uTime.value = ts;
-  if (Math.abs(tod - todTarget) > 0.003){ tod += (todTarget - tod) * Math.min(1, dt * 2.2); applyTod(tod); } else if (tod !== todTarget){ tod = todTarget; applyTod(tod); }
+  if (Math.abs(ST.tod - ST.todTarget) > 0.003){ ST.tod += (ST.todTarget - ST.tod) * Math.min(1, dt * 2.2); applyTod(ST.tod); } else if (ST.tod !== ST.todTarget){ ST.tod = ST.todTarget; applyTod(ST.tod); }
   updateAnim(dt * (reduceMotion ? 0.3 : 1), ts);
-  crowdU.uTime.value = ts; crowdU.uCam.value.copy(camera.position); crowdU.uFogColor.value.copy(scene.fog.color); crowdU.uFogNear.value = scene.fog.near; crowdU.uFogFar.value = scene.fog.far;
+  ST.crowdU.uTime.value = ts; ST.crowdU.uCam.value.copy(camera.position); ST.crowdU.uFogColor.value.copy(scene.fog.color); ST.crowdU.uFogNear.value = scene.fog.near; ST.crowdU.uFogFar.value = scene.fog.far;
   if (PLAY.on && !tween){ updatePlayer(dt); followCamera(dt, PLAY.dragging); }
   if (tween) stepTween(now || performance.now());
-  controls.update(); constrain();
-  var dist = camera.position.distanceTo(controls.target), nn = clamp(dist * 0.008, 0.02, 6);
+  ST.controls.update(); constrain();
+  var dist = camera.position.distanceTo(ST.controls.target), nn = clamp(dist * 0.008, 0.02, 6);
   if (Math.abs(nn - camera.near) > nn * 0.15){ camera.near = nn; camera.updateProjectionMatrix(); }
   updateShadow(dist);
-  updateDetail(PLAY.on && PL ? PL.x : controls.target.x, PLAY.on && PL ? PL.z : controls.target.z, PLAY.on || dist < 55);
+  updateDetail(PLAY.on && PL ? PL.x : ST.controls.target.x, PLAY.on && PL ? PL.z : ST.controls.target.z, PLAY.on || dist < 55);
   renderFrame(dist, dt);
   updateWeather(dt, ts, dist); updateLabels(dist); updateHud(dist); updateAudio(dt, dist); updateLocate(dist, ts); governor(rawDt);
 }
 
 /* ---------- bộ điều tốc: FPS thấp kéo dài thì hạ chất lượng từng bậc ---------- */
 // Bậc 1: giảm độ phân giải. Bậc 2: tắt bóng đổ. Bậc 3: bớt một nửa người đi bộ và ghi nhớ để lần sau dựng bản LITE.
-var GOV = { t:0, n:0, acc:0, level:0, wait:4 };
-function governor(d){ if (document.hidden || d <= 0 || d > 0.5) return; GOV.t += d; if (GOV.t < GOV.wait) return; GOV.acc += d; GOV.n++;
-  if (GOV.acc < 2.5) return; var fps = GOV.n / GOV.acc; GOV.acc = 0; GOV.n = 0;
-  if (fps >= 38 || GOV.level >= 3) return; GOV.level++; GOV.t = 0; GOV.wait = 3;
-  if (GOV.level === 1){ renderer.setPixelRatio(Math.max(1, renderer.getPixelRatio() * 0.7)); renderer.setSize(innerWidth, innerHeight); resizePost(); }   // cũng tắt hậu kỳ (renderFrame)
-  else if (GOV.level === 2){ renderer.shadowMap.enabled = false; scene.traverse(function(o){ if (o.material && o.material.needsUpdate !== undefined) o.material.needsUpdate = true; }); }
+ST.GOV = { t:0, n:0, acc:0, level:0, wait:4 };
+function governor(d){ if (document.hidden || d <= 0 || d > 0.5) return; ST.GOV.t += d; if (ST.GOV.t < ST.GOV.wait) return; ST.GOV.acc += d; ST.GOV.n++;
+  if (ST.GOV.acc < 2.5) return; var fps = ST.GOV.n / ST.GOV.acc; ST.GOV.acc = 0; ST.GOV.n = 0;
+  if (fps >= 38 || ST.GOV.level >= 3) return; ST.GOV.level++; ST.GOV.t = 0; ST.GOV.wait = 3;
+  if (ST.GOV.level === 1){ renderer.setPixelRatio(Math.max(1, renderer.getPixelRatio() * 0.7)); renderer.setSize(innerWidth, innerHeight); resizePost(); }   // cũng tắt hậu kỳ (renderFrame)
+  else if (ST.GOV.level === 2){ renderer.shadowMap.enabled = false; scene.traverse(function(o){ if (o.material && o.material.needsUpdate !== undefined) o.material.needsUpdate = true; }); }
   else { var C = anim.crowd; if (C) C.mesh.geometry.instanceCount = Math.floor(C.n / 2); try { if (!LITE) localStorage.setItem('nt-q', 'lite'); } catch (e){} }
-  console.info('[chất lượng] FPS ' + fps.toFixed(0) + ' → hạ xuống bậc ' + GOV.level); }
+  console.info('[chất lượng] FPS ' + fps.toFixed(0) + ' → hạ xuống bậc ' + ST.GOV.level); }
 
 /* ======================= BUILD SEQUENCE ======================= */
 async function build(){
   await step('Đang dựng địa hình…');
-  G = buildGrid(LITE ? 1.5 : 1.0);
-  ROADS_S = OSM ? osmMajorRoads() : ROADS.map(function(R){ return sampleRoad(R.pts, R.w); }); RAIL_S = sampleRoad(RAIL, 0.4, true);
+  ST.G = buildGrid(LITE ? 1.5 : 1.0);
+  ST.ROADS_S = OSM ? osmMajorRoads() : ROADS.map(function(R){ return sampleRoad(R.pts, R.w); }); ST.RAIL_S = sampleRoad(RAIL, 0.4, true);
   await step('Đang vẽ mặt đất…');
   var MW = Math.round(BW * 4), MH = Math.round(BD * 4), mcv = document.createElement('canvas'); mcv.width = MW; mcv.height = MH;
   var mctx = mcv.getContext('2d'); worldCtx(mctx, MW, MH); drawOverlays(mctx, true);
   var md = mctx.getImageData(0, 0, MW, MH).data, mask = new Uint8Array(MW * MH); for (var i = 0; i < MW * MH; i++) mask[i] = md[i * 4 + 3] > 40 ? 1 : 0;
-  MK = function(x, z){ var px = ((x - BX0) * 4) | 0, pz = ((z - BZ0) * 4) | 0; if (px < 0 || pz < 0 || px >= MW || pz >= MH) return true; return mask[pz * MW + px] === 1; };
+  ST.MK = function(x, z){ var px = ((x - BX0) * 4) | 0, pz = ((z - BZ0) * 4) | 0; if (px < 0 || pz < 0 || px >= MW || pz >= MH) return true; return mask[pz * MW + px] === 1; };
   var maxT = renderer.capabilities.maxTextureSize || 4096, TW = Math.min(LITE ? 2048 : 3072, maxT), TH = Math.round(TW * BD / BW);
   var gcv = document.createElement('canvas'); gcv.width = TW; gcv.height = TH; var gctx = gcv.getContext('2d'), img = gctx.createImageData(TW, TH);
-  paintGround(img.data, TW, TH, G); gctx.putImageData(img, 0, 0); worldCtx(gctx, TW, TH); drawOverlays(gctx, false);
-  groundTex = new THREE.CanvasTexture(gcv); groundTex.colorSpace = THREE.SRGBColorSpace; groundTex.flipY = false; groundTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-  initDetail(); terrain = buildTerrain(); water = buildWater(); buildSkirt();
+  paintGround(img.data, TW, TH, ST.G); gctx.putImageData(img, 0, 0); worldCtx(gctx, TW, TH); drawOverlays(gctx, false);
+  ST.groundTex = new THREE.CanvasTexture(gcv); ST.groundTex.colorSpace = THREE.SRGBColorSpace; ST.groundTex.flipY = false; ST.groundTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  initDetail(); ST.terrain = buildTerrain(); ST.water = buildWater(); buildSkirt();
   await step('Đang dựng phố xá…');
-  var B = genBuildings(G, MK, LITE ? 0.55 : 1, RESORT_HOTELS); buildCity(B);
+  var B = genBuildings(ST.G, ST.MK, LITE ? 0.55 : 1, RESORT_HOTELS); buildCity(B);
   buildLandmarks(); buildCable(); buildResort(); var bl = buildBridges();
   await step('Đang trồng cây…');
-  var T = genTrees(G, MK, LITE ? 2.0 : 1.4, 1); buildVegetation(T, B);
+  var T = genTrees(ST.G, ST.MK, LITE ? 2.0 : 1.4, 1); buildVegetation(T, B);
   await step('Đang thả thuyền, cho xe chạy…');
   buildBoats(); buildTraffic(); buildLamps(bl); buildSky();
   await step('Đang thêm người đi dạo…');
   buildCrowd(); buildPlayer(B);
-  ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color:'#f2592c', transparent:true, opacity:0.9, depthWrite:false, side:THREE.DoubleSide })); ring.visible = false; ring.renderOrder = 3; scene.add(ring);
+  ST.ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color:'#f2592c', transparent:true, opacity:0.9, depthWrite:false, side:THREE.DoubleSide })); ST.ring.visible = false; ST.ring.renderOrder = 3; scene.add(ST.ring);
   setupLM(); setupUI(); setupPlay();
-  initPost(); initWeather(); todTarget = tod = realTod(); applyTod(tod); syncTimeBtn();
-  computeHome(); setCam(homeTarget, homeDist, HOME_PHI, HOME_TH); controls.update(); setSpin(!reduceMotion);
+  initPost(); initWeather(); ST.todTarget = ST.tod = realTod(); applyTod(ST.tod); syncTimeBtn();
+  computeHome(); setCam(homeTarget, homeDist, HOME_PHI, HOME_TH); ST.controls.update(); setSpin(!reduceMotion);
   // Hook cho tools/shot.js và test: đặt thẳng camera, giờ, thời tiết (không chờ nội suy theo khung hình, mà trong SwiftShader mỗi khung mất vài giây)
   window.__nt = { THREE:THREE, frames:function(){ return frameN; },
-    jump:function(t, r, phi, th){ tween = null; controls.enabled = true; controls.enableDamping = true; setCam(t, r, phi, th); controls.update(); shadowDirty = true; },
+    jump:function(t, r, phi, th){ tween = null; ST.controls.enabled = true; ST.controls.enableDamping = true; setCam(t, r, phi, th); ST.controls.update(); ST.shadowDirty = true; },
     home:function(){ this.jump(homeTarget, homeDist, HOME_PHI, HOME_TH); },
-    setTod:function(n){ todUser = true; WX.real = false; todTarget = tod = n; applyTod(n); syncTimeBtn(); },
-    setWx:function(m){ WX.mode = m; syncWxBtn(); updateWeather(2, 0, 100); },
-    PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return keys; }, G:G, B:B, T:T, ROADS_S:ROADS_S, RAIL_S:RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:controls, setCam:setCam, audio:AU, gov:GOV, lite:LITE, wx:WX, sunPos:sunPos, lmp:LMP, post:POST, scene:scene, OSM:OSM, inBoard:inBoard };
+    setTod:function(n){ ST.todUser = true; ST.WX.real = false; ST.todTarget = ST.tod = n; applyTod(n); syncTimeBtn(); },
+    setWx:function(m){ ST.WX.mode = m; syncWxBtn(); updateWeather(2, 0, 100); },
+    GOV:ST.GOV, PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return ST.keys; }, G:ST.G, B:B, T:T, ROADS_S:ST.ROADS_S, RAIL_S:ST.RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:ST.controls, setCam:setCam, audio:AU, gov:ST.GOV, lite:LITE, wx:ST.WX, sunPos:sunPos, lmp:LMP, post:POST, scene:scene, OSM:OSM, inBoard:inBoard };
   ready = true; loader.hidden = true; requestAnimationFrame(frame);
 }
 build().catch(function(e){ console.error(e); fail('Không dựng được bản đồ: ' + (e && e.message ? e.message : e)); });

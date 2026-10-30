@@ -95,7 +95,7 @@ function run(entries, out){
       if (mxc < 110 && mxc - mnc < 30) for (let j = 0; j < 3; j++) g.C[k + j] = Math.round(255 - (255 - c[j]) * 0.5); }
     const r = pack(g, /[\\/]blender[\\/]/.test(file)); tris += r.tris; delete r.tris; res[id] = r; }   // mô hình Blender tự chọn màu, không đổi màu mái
   const js = '/* Tự sinh bởi tools/convert-models.js, đừng sửa tay. Mô hình: Kenney City Kit (CC0, www.kenney.nl). */\n' +
-    'var MODEL_DATA = {\n' + Object.keys(res).map(k => '  ' + JSON.stringify(k) + ':' + JSON.stringify(res[k])).join(',\n') + '\n};\n';
+    'export var MODEL_DATA = {\n' + Object.keys(res).map(k => '  ' + JSON.stringify(k) + ':' + JSON.stringify(res[k])).join(',\n') + '\n};\n';
   fs.writeFileSync(out, js);
   console.log('[models] ' + Object.keys(res).length + ' mô hình, ' + tris + ' tam giác, ' + (js.length / 1024).toFixed(0) + ' KB -> ' + path.relative(process.cwd(), out));
 }
