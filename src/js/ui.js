@@ -9,6 +9,7 @@ import { initWeather, realTod, sunPos, syncWxBtn, updateWeather } from './weathe
 import { buildOcean, setWind, updateOcean } from './ocean.js';
 import { depthFade, waveHeightAt, waveNormalAt, windState } from './ocean-waves.js';
 import { POST, initPost, renderFrame, resizePost } from './post.js';
+import { MM, drawMinimap, initMinimap, showMinimap, updateMinimap } from './minimap.js';
 /* ======================= CONTROLS, UI, LOOP ======================= */
 var ready = false; ST.shadowDirty = true; var frameN = 0;
 ST.controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -156,7 +157,7 @@ function syncTimeBtn(){ var i = Math.round(ST.todTarget), name = ST.WX.real ? 'G
 function themeIsDark(){ var t = document.documentElement.getAttribute('data-theme'); if (t === 'dark') return true; if (t === 'light') return false; return matchMedia('(prefers-color-scheme: dark)').matches; }
 function onSchemeChange(){ if (ST.todUser || ST.WX.real || !ready) return; ST.todTarget = themeIsDark() ? 2 : 0; syncTimeBtn(); }
 var rail = document.getElementById('rail'), chips = [], card = document.getElementById('card');
-function select(i){ var L = LM[i]; current = i; hideHint();
+function select(i){ var L = LM[i]; current = i; ST.navTarget = i; hideHint();
   document.getElementById('cardTag').textContent = L.cat; document.getElementById('cardTitle').textContent = L.name; document.getElementById('cardDesc').textContent = L.desc;
   var f = document.getElementById('cardFacts'); f.innerHTML = ''; L.facts.forEach(function(t){ var s = document.createElement('span'); s.textContent = t; f.appendChild(s); });
   document.getElementById('cardIdx').textContent = (i + 1) + ' / ' + LM.length;
@@ -232,7 +233,7 @@ var saved = null;
 function enterPlay(){ if (PLAY.on || !PL) return; PLAY.on = true; PLAY.lastDrag = 0; document.body.classList.add('playing'); closeCard(); setSpin(false); hideHint();
   saved = { min:ST.controls.minDistance, max:ST.controls.maxDistance, pol:ST.controls.maxPolarAngle };
   ST.controls.enablePan = false; ST.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE; ST.controls.touches.ONE = THREE.TOUCH.ROTATE; ST.controls.minDistance = 0.35 * KS; ST.controls.maxDistance = 9; ST.controls.maxPolarAngle = 1.45;
-  document.getElementById('btnPlay').setAttribute('aria-pressed', 'true'); document.getElementById('playHud').hidden = false; syncPlayBtns(); DP.valid = false;
+  document.getElementById('btnPlay').setAttribute('aria-pressed', 'true'); document.getElementById('playHud').hidden = false; document.querySelector('#btnPlay span').textContent = '✕ Thoát'; showMinimap(); syncPlayBtns(); DP.valid = false;
   flyTo(new THREE.Vector3(PL.x, PL.y + 0.09 * KS, PL.z), CAMLV[camLevel][0], CAMLV[camLevel][1], PL.yaw + Math.PI, 1600); }
 // ba mức góc nhìn khi lái/đi bộ: gần, vừa (như cũ), xa; phím C hoặc nút "Góc nhìn"
 var CAMLV = [[0.5 * KS, 1.25, 'gần'], [1.5 * KS, 1.08, 'vừa'], [4 * KS, 0.9, 'xa']], camLevel = 1; try { var _cl = parseInt(localStorage.getItem('nt-cam'), 10); if (_cl >= 0 && _cl < 3) camLevel = _cl; } catch (e){}
@@ -242,7 +243,7 @@ function syncCamBtn(){ var b = document.getElementById('btnCam'); if (b) b.textC
 function setBoost(on){ ST.boostBtn = on; var bb = document.getElementById('btnBoost'); if (bb){ bb.setAttribute('aria-pressed', String(on)); bb.textContent = on ? 'Đang tăng ga' : 'Tăng ga'; } }
 function exitPlay(){ if (!PLAY.on) return; PLAY.on = false; setBoost(false); document.body.classList.remove('playing'); ST.keys = {}; joy.on = false; joy.x = joy.y = 0;
   ST.controls.enablePan = true; ST.controls.mouseButtons.LEFT = THREE.MOUSE.PAN; ST.controls.touches.ONE = THREE.TOUCH.PAN; ST.controls.minDistance = saved.min; ST.controls.maxDistance = saved.max; ST.controls.maxPolarAngle = saved.pol;
-  document.getElementById('btnPlay').setAttribute('aria-pressed', 'false'); document.getElementById('playHud').hidden = true;
+  document.getElementById('btnPlay').setAttribute('aria-pressed', 'false'); document.getElementById('playHud').hidden = true; document.querySelector('#btnPlay span').textContent = 'Lái xe';
   var s2 = sphOf(); flyTo(new THREE.Vector3(PL.x, 0, PL.z), 26, 0.9, s2.th, 1300); }
 function setupPlay(){
   var bp = document.getElementById('btnPlay'); bp.addEventListener('click', function(){ if (PLAY.on) exitPlay(); else enterPlay(); });
@@ -377,6 +378,7 @@ function frame(now){
   if (Math.abs(nn - camera.near) > nn * 0.15){ camera.near = nn; camera.updateProjectionMatrix(); }
   updateShadow(dist);
   updateDetail(PLAY.on && PL ? PL.x : ST.controls.target.x, PLAY.on && PL ? PL.z : ST.controls.target.z, PLAY.on || dist < 55, dist);
+  updateMinimap(now || performance.now());
   renderFrame(dist, dt);
   updateWeather(dt, ts, dist); updateLabels(dist); updateHud(dist); updateAudio(dt, dist); updateLocate(dist, ts); updatePlayerMarker(dist); governor(rawDt);
 }
@@ -405,7 +407,7 @@ async function build(){
   var maxT = renderer.capabilities.maxTextureSize || 4096, TW = Math.min(LITE ? 2048 : 3072, maxT), TH = Math.round(TW * BD / BW);
   var gcv = document.createElement('canvas'); gcv.width = TW; gcv.height = TH; var gctx = gcv.getContext('2d'), img = gctx.createImageData(TW, TH);
   paintGround(img.data, TW, TH, ST.G); gctx.putImageData(img, 0, 0); worldCtx(gctx, TW, TH); drawOverlays(gctx, false);
-  ST.groundTex = new THREE.CanvasTexture(gcv); ST.groundTex.colorSpace = THREE.SRGBColorSpace; ST.groundTex.flipY = false; ST.groundTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  ST.groundCv = gcv; ST.groundTex = new THREE.CanvasTexture(gcv); ST.groundTex.colorSpace = THREE.SRGBColorSpace; ST.groundTex.flipY = false; ST.groundTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   initDetail(); ST.terrain = buildTerrain(); ST.water = buildOcean(); scene.add(ST.water); buildSkirt();
   await step('Đang dựng phố xá…');
   var B = genBuildings(ST.G, ST.MK, LITE ? 0.55 : 1, RESORT_HOTELS); buildCity(B);
@@ -417,7 +419,7 @@ async function build(){
   await step('Đang thêm người đi dạo…');
   buildCrowd(); buildPlayer(B);
   ST.ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color:'#f2592c', transparent:true, opacity:0.9, depthWrite:false, side:THREE.DoubleSide })); ST.ring.visible = false; ST.ring.renderOrder = 3; scene.add(ST.ring);
-  setupLM(); setupUI(); setupPlay();
+  setupLM(); setupUI(); setupPlay(); initMinimap();
   initPost(); initWeather(); ST.todTarget = ST.tod = realTod(); applyTod(ST.tod); syncTimeBtn();
   computeHome(); setCam(homeTarget, homeDist, HOME_PHI, HOME_TH); ST.controls.update(); setSpin(!reduceMotion);
   // Hook cho tools/shot.js và test: đặt thẳng camera, giờ, thời tiết (không chờ nội suy theo khung hình, mà trong SwiftShader mỗi khung mất vài giây)
@@ -426,7 +428,7 @@ async function build(){
     home:function(){ this.jump(homeTarget, homeDist, HOME_PHI, HOME_TH); },
     setTod:function(n){ ST.todUser = true; ST.WX.real = false; ST.todTarget = ST.tod = n; applyTod(n); syncTimeBtn(); },
     setWx:function(m){ ST.WX.mode = m; syncWxBtn(); updateWeather(2, 0, 100); },
-    KS:KS, KV:KV, GOV:ST.GOV, streetPalms:function(){ return ST.streetPalms; }, setWind:setWind, waves:{ heightAt:waveHeightAt, normalAt:waveNormalAt, windState:windState, depthFade:depthFade }, PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return ST.keys; }, G:ST.G, B:B, T:T, ROADS_S:ST.ROADS_S, RAIL_S:ST.RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:ST.controls, setCam:setCam, audio:AU, gov:ST.GOV, lite:LITE, wx:ST.WX, sunPos:sunPos, lmp:LMP, post:POST, scene:scene, OSM:OSM, inBoard:inBoard };
+    KS:KS, KV:KV, GOV:ST.GOV, setNav:function(id){ ST.navTarget = id && LMI[id] ? LMI[id].i : -1; }, minimap:{ draw:function(x, z, az, yaw, tgt, night){ drawMinimap(x, z, az, yaw, tgt, night || 0); }, state:MM }, streetPalms:function(){ return ST.streetPalms; }, setWind:setWind, waves:{ heightAt:waveHeightAt, normalAt:waveNormalAt, windState:windState, depthFade:depthFade }, PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return ST.keys; }, G:ST.G, B:B, T:T, ROADS_S:ST.ROADS_S, RAIL_S:ST.RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:ST.controls, setCam:setCam, audio:AU, gov:ST.GOV, lite:LITE, wx:ST.WX, sunPos:sunPos, lmp:LMP, post:POST, scene:scene, OSM:OSM, inBoard:inBoard };
   ready = true; loader.hidden = true; requestAnimationFrame(frame);
 }
 build().catch(function(e){ console.error(e); fail('Không dựng được bản đồ: ' + (e && e.message ? e.message : e)); });

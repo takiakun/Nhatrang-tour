@@ -343,9 +343,9 @@ function fillPoly(ctx, pts){ ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); 
 function landRuns(samples){ var runs = [], cur = []; samples.forEach(function(s){ if (!s.br){ cur.push([s.x, s.z]); } else { if (cur.length > 1) runs.push(cur); cur = []; } }); if (cur.length > 1) runs.push(cur); return runs; }
 
 /* ---------- buildings ---------- */
-var TUBE_C = ['#f4e2a1','#cfe8d6','#f2c7b3','#d5e3f1','#ffffff','#f5d6df','#eadcc6','#fff1cf','#c9e2e8','#f6f0e4','#e9d2b8'];
+var TUBE_C = ['#f4e2a1','#cfe8d6','#d3dde3','#d5e3f1','#ffffff','#f5d6df','#eadcc6','#fff1cf','#c9e2e8','#f6f0e4','#dfe6dc'];
 var VILLA_C = ['#fbf3e4','#fff8ee','#f3e3c3','#e6efe0','#f6e6d6'];
-var ROOF_C = ['#c8553a','#b94a34','#d96b45','#a8432f','#9c5a3c'];
+var ROOF_C = ['#b94a34','#a8432f','#9c5a3c','#66705f','#5f7380'];
 var TOWER_C = ['#ffffff','#e7f1f6','#f6efe3','#dcebe8','#cfe1ec','#f3f3f3','#e9e4da'];
 var TUBE_F = [2,3,4,5,6], TOWER_F = [8,12,18,26,36,46], MID_F = [3,5,7,9];
 function nearestIdx(arr, v){ var b = 0; for (var i = 1; i < arr.length; i++) if (Math.abs(arr[i] - v) < Math.abs(arr[b] - v)) b = i; return b; }

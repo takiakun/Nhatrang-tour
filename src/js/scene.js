@@ -85,10 +85,27 @@ function modelGeo(id){ if (modelCache[id]) return modelCache[id];
 // Vật liệu cho mô hình: màu đỉnh × màu từng căn (instanceColor), riêng phần mái (aMask) × màu mái (aRoof).
 // Pháp tuyến được scale lại trong modelGeo theo kích thước gốc nên chỉ cần scale instance theo đúng tỷ lệ đó.
 // r186: vColor luôn là vec4 nên gán vec4(rgb, 1)
-function kitMat(){ var m = glowMat('#ffffff', '#ffb35c', 0, 0.16); m.vertexColors = true; m.roughness = 0.78;
-  m.onBeforeCompile = function(sh){ sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aMask;\nattribute vec3 aRoof;')
-    .replace('#include <color_vertex>', 'vColor = vec4(color * mix(instanceColor, aRoof, aMask), 1.0);'); };
-  m.customProgramCacheKey = function(){ return 'kit'; };
+function kitMat(){ var m = glowMat('#ffffff', '#ffd38a', 0, 0.85); m.vertexColors = true; m.roughness = 0.78;
+  // Ban đêm: ô cửa sổ sáng rải theo thủ tục trên tường phẳng, thay cho phát sáng cam đều cả khối
+  m.onBeforeCompile = function(sh){ sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aMask;\nattribute vec3 aRoof;\nvarying vec3 vWP;\nvarying vec3 vWN;\nvarying vec2 vWM;')
+    .replace('#include <color_vertex>', `vColor = vec4(color * mix(instanceColor, aRoof, aMask), 1.0);
+      vec4 wp_ = vec4(position, 1.0); vec3 wn_ = normal;
+      #ifdef USE_INSTANCING
+        wp_ = instanceMatrix * wp_; wn_ = mat3(instanceMatrix) * wn_;
+      #endif
+      vWP = (modelMatrix * wp_).xyz; vWN = normalize(mat3(modelMatrix) * wn_); vWM = vec2(dot(color, vec3(0.299, 0.587, 0.114)), aMask);`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP;\nvarying vec3 vWN;\nvarying vec2 vWM;')
+    .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      {
+        // ô cửa sổ sáng rải trên tường phẳng (màu đỉnh sáng, không phải mái, gờ, khung tối): lưới theo tầng × bề ngang, ~58% ô sáng
+        vec3 n_ = normalize(vWN); float wall_ = (1.0 - smoothstep(0.2, 0.35, abs(n_.y))) * step(0.3, vWM.x) * (1.0 - step(0.5, vWM.y));
+        float along_ = dot(vWP.xz, vec2(-n_.z, n_.x)) / ${(FLOOR * 1.05).toFixed(4)}, up_ = vWP.y / ${FLOOR.toFixed(4)};
+        vec2 cell_ = floor(vec2(along_, up_)), f_ = vec2(fract(along_), fract(up_));
+        float h_ = fract(sin(dot(cell_, vec2(12.9898, 78.233))) * 43758.5453);
+        float win_ = step(0.26, f_.x) * step(f_.x, 0.74) * step(0.3, f_.y) * step(f_.y, 0.78) * step(0.42, h_);
+        totalEmissiveRadiance *= wall_ * win_;
+      }`); };
+  m.customProgramCacheKey = function(){ return 'kit2'; };
   return m; }
 var KIT = null; function kit(){ return KIT || (KIT = kitMat()); }
 // Kích thước (rộng, cao, dài) để mô hình dài đúng len theo trục z mà vẫn giữ tỷ lệ gốc
@@ -486,8 +503,8 @@ function buildBridges(){
   return lights; }
 
 function buildCity(B){
-  var winT = winTex(2, 2, { mx:6, my:7, wh:13, balcony:true, glass:'#8aaabd', seed:1 }), winTw = winTex(4, 4, { mx:5, my:6, wh:17, glass:'#7ea4bd', seed:2 }), winM = winTex(4, 4, { mx:7, my:8, wh:12, glass:'#93aebd', balcony:true, seed:3 });
-  var tubeMat = bmat(winT, 0.75), towerMat = bmat(winTw, 1.0), midMat = bmat(winM, 0.8);
+  var winT = winTex(2, 2, { mx:6, my:7, wh:13, balcony:true, glass:'#8aaabd', seed:1 }), winTw = winTex(4, 4, { mx:5, my:6, wh:17, glass:'#7ea4bd', seed:2 });
+  var tubeMat = bmat(winT, 0.75), towerMat = bmat(winTw, 1.0);
   TUBE_F.forEach(function(f){ instChunks(boxUV(1, f / 2, true), tubeMat, B.tubes.filter(function(t){ return t.f === f; }), function(d, it, c){ d.position.set(it.x, it.y, it.z); d.rotation.y = it.r; d.scale.set(it.w, it.h, it.d); c.set(it.c); }); });
   TOWER_F.forEach(function(f){ instChunks(boxUV(1.5, f / 4, false), towerMat, B.towers.filter(function(t){ return t.f === f; }), function(d, it, c){ d.position.set(it.x, it.y, it.z); d.rotation.y = it.r; d.scale.set(it.w, it.h, it.d); c.set(it.c); }, { pad:8 }); });
   // Chung cư thấp tầng giữa khối phố: mô hình Kenney Commercial, kéo theo số tầng

@@ -10,7 +10,7 @@
     "build:single": "vite build --mode single",
     "watch": "vite build --watch",
     "serve": "vite preview",
-    "test": "vite build && vite build --mode test && node tests/map-check.js && node tests/ocean-check.js && node tests/smoke.js && node tests/drive-check.js",
+    "test": "vite build && vite build --mode test && node tests/map-check.js && node tests/ocean-check.js && node tests/smoke.js && node tests/ui-check.js && node tests/drive-check.js",
     "check:map": "node tests/map-check.js && node tools/check-sizes.js"
   },
   "devDependencies": {

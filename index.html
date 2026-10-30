@@ -93,6 +93,9 @@
 <nav class="rail" aria-label="Địa danh"><div id="rail" class="rail-inner"></div></nav>
 
 <div id="playHud" class="play-hud" hidden>
+  <canvas id="minimap" class="minimap" width="130" height="130" role="img" aria-label="Bản đồ nhỏ: mũi tên là bạn, chữ B là hướng Bắc. Chạm để đổi giữa quay theo hướng nhìn và hướng Bắc lên trên"></canvas>
+  <button id="btnInfo" class="minfo" type="button" aria-label="Nguồn dữ liệu" aria-expanded="false" aria-controls="attribPop">i</button>
+  <div id="attribPop" class="attrib-pop panel" hidden></div>
   <div id="speedo" class="speedo panel" hidden><b>0</b><span>km/h</span></div>
   <p id="playMsg" class="play-msg panel" hidden></p>
   <p class="play-help panel"><b>WASD</b> / mũi tên: đi, lái · <b>Shift</b>: chạy, tăng ga · <b>E</b>: lên/xuống xe, gọi xe · <b>Space</b>: nhảy · <b>H</b>: bấm còi · <b>C</b>: đổi góc nhìn (gần/vừa/xa) · Kéo chuột: xoay góc nhìn · <b>Esc</b>: thoát</p>
