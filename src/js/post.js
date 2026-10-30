@@ -30,7 +30,7 @@ function initPost(){
     'void main(){ vec3 col = texture2D(tCol, vUv).rgb, bl = texture2D(tBlur, vUv).rgb;\n' +
     ' if (uTilt > 0.0){ float t = smoothstep(0.12, 0.45, abs(vUv.y - 0.52)) * uTilt; col = mix(col, bl, t); }\n' +
     ' if (uEdge > 0.0){ float d = lin(vUv), s = 0.0;\n' +
-    '  s += abs(lin(vUv + vec2(uPx.x, 0.0)) - d) + abs(lin(vUv - vec2(uPx.x, 0.0)) - d) + abs(lin(vUv + vec2(0.0, uPx.y)) - d) + abs(lin(vUv - vec2(0.0, uPx.y)) - d);\n' +
+    '  s += abs(lin(vUv + vec2(uPx.x, 0.0)) + lin(vUv - vec2(uPx.x, 0.0)) - 2.0 * d) + abs(lin(vUv + vec2(0.0, uPx.y)) + lin(vUv - vec2(0.0, uPx.y)) - 2.0 * d);   // sai phân bậc hai: mặt phẳng nghiêng (đất sát chân trời) cho 0, chỉ bậc thang độ sâu mới ra viền\n' +
     '  float e = smoothstep(0.035, 0.09, s / d) * uEdge * (1.0 - smoothstep(25.0, 120.0, d)); col = mix(col, col * vec3(0.32, 0.33, 0.38), e); }\n' +
     ' if (uBloom > 0.0) col += max(bl - 0.75, 0.0) * 1.6 * uBloom;\n' +
     ' gl_FragColor = vec4(srgb(aces(col)), 1.0); }';

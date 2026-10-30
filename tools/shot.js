@@ -18,6 +18,11 @@ const VIEWS = {
   honchong:  { lm:'hon-chong', r:25, phi:1.05, th:1.3, tod:0, wx:'sun' },
   sea:       { ll:[12.2250, 109.2150], r:14, phi:1.2, th:1.6, tod:0, wx:'sun' },
   seawide:   { ll:[12.2200, 109.2300], r:120, phi:1.0, th:1.2, tod:0, wx:'sun' },
+  ground1:   { ll:[12.2475, 109.1940], r:0.6, phi:1.38, th:1.6, tod:0, wx:'sun', frames:16 },
+  ground2:   { ll:[12.2330, 109.1960], r:0.8, phi:1.35, th:1.55, tod:0, wx:'sun', frames:16 },
+  ground3:   { ll:[12.2475, 109.1915], r:1.2, phi:1.2, th:0.5, tod:0, wx:'sun', frames:16 },
+  groundbeach:{ ll:[12.2330, 109.1992], r:0.8, phi:1.4, th:4.7, tod:0, wx:'sun', frames:16 },
+  groundnight:{ ll:[12.2330, 109.1960], r:1.0, phi:1.3, th:1.55, tod:2, wx:'sun', frames:16 },
   beachtop:  { ll:[12.2330, 109.1975], r:22, phi:0.05, th:0, tod:0, wx:'sun' },
   streettop: { ll:[12.2475, 109.1915], r:16, phi:0.05, th:0, tod:0, wx:'sun' },
   seanear:   { ll:[12.2250, 109.2150], r:6, phi:1.3, th:1.6, tod:0, wx:'sun' },
@@ -58,7 +63,7 @@ const MIME = { '.html':'text/html', '.js':'application/javascript', '.css':'text
     await page.evaluate(([v]) => { __nt.setTod(v.tod); __nt.setWx(v.wx); if (v.home) return __nt.home();
       const p = v.lm ? __nt.lmp[v.lm] : [(v.ll[1] - 109.240) * 2176, -(v.ll[0] - 12.226) * 2212];
       __nt.jump(new (__nt.THREE || window.THREE).Vector3(p[0], Math.max(__nt.G.hAt(p[0], p[1]), 0), p[1]), v.r, v.phi, v.th); }, [v]);
-    await frames(v.wx === 'rain' ? 4 : 3);
+    await frames(v.frames || (v.wx === 'rain' ? 4 : 3));
     const file = path.join(OUT, PREFIX + '-' + name + '.png'); await page.screenshot({ path:file, timeout:300000 }); console.log('đã chụp ' + file); }
   await browser.close();
 })().catch(e => { console.error(e.message); process.exit(1); });
