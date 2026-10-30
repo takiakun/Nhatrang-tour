@@ -541,9 +541,9 @@ function buildVegetation(T, B){
   instChunks(palmGeo, VCM, palms, function(d, it, c){ d.position.set(it.x, it.y - 0.02, it.z); d.rotation.set(it.t, it.a, 0); d.scale.setScalar(it.s); c.set(['#ffffff','#eef6df','#f6f1e2'][(ih(it.x * 3, it.z) * 3) | 0]); });
   var umb = [], lounge = [], UC = ['#f2592c','#3fb6c9','#ffd23f','#ffffff','#ff8fab','#2a9d8f'];
   for (var z = P(12.2600, 0)[1]; z <= P(12.2125, 0)[1]; z += 0.2){ var sec = ih(Math.floor(z / 6), 4); if (sec < 0.25) continue; var x = coastX(z) - 0.42 - ih(z * 13, 1) * 0.42, y = ST.G.hAt(x, z); if (y < 0.08) continue;
-    var col = UC[(Math.floor(z / 6) * 7 + 3) % UC.length]; umb.push({ x:x, z:z, y:y, c:col }); lounge.push({ x:x + 0.07, z:z + 0.03, y:y }, { x:x + 0.07, z:z - 0.05, y:y }); }
-  instChunks(umbGeo, VCM, umb, function(d, it, c){ d.position.set(it.x, it.y, it.z); d.scale.setScalar(1.25); c.set(it.c); }, { cast:true });
-  var lg = new THREE.BoxGeometry(0.09, 0.02, 0.035); lg.translate(0, 0.02, 0);
+    var col = UC[(Math.floor(z / 6) * 7 + 3) % UC.length]; umb.push({ x:x, z:z, y:y, c:col }); lounge.push({ x:x + 0.035, z:z + 0.015, y:y }, { x:x + 0.035, z:z - 0.025, y:y }); }
+  instChunks(umbGeo, VCM, umb, function(d, it, c){ d.position.set(it.x, it.y, it.z); d.scale.setScalar(0.5); c.set(it.c); }, { cast:true });   // ô cao ~4 m (thật 2,2 m; ×1,6 thế giới ≈ 3,5 m)
+  var lg = new THREE.BoxGeometry(0.045, 0.01, 0.0175); lg.translate(0, 0.01, 0);
   instChunks(lg, mat('#fbfbf7'), lounge, function(d, it){ d.position.set(it.x, it.y, it.z); }, { cast:false });
 }
 
@@ -606,10 +606,10 @@ function buildTraffic(){
   for (var i = 0; i < NV; i++){ var pick = rv() * tot, R = roads[0]; for (var k = 0; k < roads.length; k++){ if (pick < roads[k].L){ R = roads[k]; break; } pick -= roads[k].L; }
     var r = rv(), type = r < 0.74 ? 'moto' : (r < 0.95 ? 'car' : 'bus');
     var pal = type === 'moto' ? MC : (type === 'car' ? CC : BC);
-    V[type].push({ R:R, s:rv() * R.L, dir:rv() < 0.5 ? 1 : -1, sp:(type === 'moto' ? 0.42 : type === 'car' ? 0.5 : 0.36) * (0.8 + rv() * 0.4), l:rv(), c:pal[(rv() * pal.length) | 0], len:type === 'bus' ? 0.44 : type === 'car' ? 0.21 : 0.12 }); }
+    V[type].push({ R:R, s:rv() * R.L, dir:rv() < 0.5 ? 1 : -1, sp:(type === 'moto' ? 0.21 : type === 'car' ? 0.25 : 0.18) * (0.8 + rv() * 0.4), l:rv(), c:pal[(rv() * pal.length) | 0], ks:type === 'bus' ? 0.75 : (type === 'car' ? 0.5 : 0.45), len:type === 'bus' ? 0.33 : type === 'car' ? 0.105 : 0.054 }); }   // xe NPC thu nhỏ (ô tô ×0,5, xe máy ×0,45, buýt ×0,75), tốc độ ×0,5
   var all = []; ['moto', 'bus'].forEach(function(t){ var im = dynInst(vehGeo[t], VCM, V[t].length, t !== 'moto'); V[t].forEach(function(v, i){ v.im = im; v.k = i; _c.set(v.c || '#ffffff'); im.setColorAt(i, _c); all.push(v); }); });
   var CARS = ['car-sedan','car-sedan-sports','car-hatchback','car-suv','car-suv-luxury','car-taxi','car-van','car-pickup'], CT = ['#ffffff','#ffffff','#eef2f7','#f7f0e6'];
-  CARS.forEach(function(id, m){ var list = V.car.filter(function(v, i){ return ((ih(i * 7 + 3, 13) * CARS.length) | 0) === m; }), im = kitDyn(id, list.length, true), sc = fitLen(id, 0.21);
+  CARS.forEach(function(id, m){ var list = V.car.filter(function(v, i){ return ((ih(i * 7 + 3, 13) * CARS.length) | 0) === m; }), im = kitDyn(id, list.length, true), sc = fitLen(id, 0.105);
     list.forEach(function(v, i){ v.im = im; v.k = i; v.sc = sc; _c.set(CT[(ih(i, m) * CT.length) | 0]); im.setColorAt(i, _c); all.push(v); }); });
   var pos = new Float32Array(all.length * 6), col = new Float32Array(all.length * 6);
   all.forEach(function(v, i){ col.set([1, 0.93, 0.78, 1, 0.16, 0.12], i * 6); });

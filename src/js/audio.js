@@ -2,7 +2,7 @@ import { ST } from '../state.js';
 import { OC } from './ocean-waves.js';
 import { DIST, clamp } from './geo.js';
 import { anim, roadPoint } from './scene.js';
-import { PL, PLAY, groundAt } from './player.js';
+import { KS, KV, PL, PLAY, groundAt } from './player.js';
 /* ======================= ÂM THANH (Web Audio, sinh bằng code) ======================= */
 // Không có file âm thanh: sóng biển, gió, phố xá, còi xe, chim, dế, tiếng xe máy, bước chân, té nước đều tổng hợp từ nhiễu và dao động.
 // Âm lượng từng lớp theo vị trí "người nghe" (nhân vật khi lái, tâm camera khi xem bản đồ) và độ cao camera.
@@ -99,7 +99,7 @@ function updateAudio(dt, dist){
   if (play && PL.mode === 'swim') sea = 1;
   function set(g, v){ g.gain.setTargetAtTime(v, t, 0.4); }
   set(L.sea, (0.12 + 0.75 * sea * near + 0.18 * high) * 0.55 * (0.7 + 0.55 * clamp(OC.kmh / 32, 0, 1.3)));   // sóng ồn hơn khi gió mạnh
-  set(L.wind, (0.05 + 0.3 * high + 0.25 * E.wild * near + (play && PL.mode === 'bike' ? clamp(Math.abs(PL.bike.speed) / 2.4, 0, 1) * 0.25 : 0)) * (0.8 + clamp(OC.kmh / 25, 0, 1.2)));  // gió (km/h; thật hoặc theo chế độ thời tiết) làm gió to nhỏ
+  set(L.wind, (0.05 + 0.3 * high + 0.25 * E.wild * near + (play && PL.mode === 'bike' ? clamp(Math.abs(PL.bike.speed) / (2.4 * KV), 0, 1) * 0.25 : 0)) * (0.8 + clamp(OC.kmh / 25, 0, 1.2)));  // gió (km/h; thật hoặc theo chế độ thời tiết) làm gió to nhỏ
   set(L.city, E.city * near * (0.5 - 0.3 * night) * 0.6);
   set(L.night, night * (0.03 + 0.08 * (1 - E.city) * near) * (1 - ST.WX.k.rain));
   set(L.rain, ST.WX.k.rain * (0.15 + 0.35 * near));
@@ -110,9 +110,9 @@ function updateAudio(dt, dist){
   // tàu hoả kéo còi khi chạy gần
   var tr = anim.train && ST.RAIL_S ? roadPoint(ST.RAIL_S, anim.train.s, {}) : null; if (tr && t > AU.nextTrain){ var td = Math.hypot(tr.x - lx, tr.z - lz); if (td < 14 && anim.train.wait <= 0){ trainHorn(t, 0.05 * clamp(1.4 - td / 14, 0, 1) * near); AU.nextTrain = t + 25 + Math.random() * 20; } }
   // xe máy của nhân vật
-  var e = AU.eng, sp = play && PL.mode === 'bike' ? Math.abs(PL.bike.speed) : 0, rpm = 19 + sp * 26 + (play && PL.mode === 'bike' && (ST.keys.ShiftLeft || ST.keys.ShiftRight || ST.boostBtn) ? 8 : 0);
+  var e = AU.eng, sp = play && PL.mode === 'bike' ? Math.abs(PL.bike.speed) : 0, rpm = 19 + sp / KV * 26 + (play && PL.mode === 'bike' && (ST.keys.ShiftLeft || ST.keys.ShiftRight || ST.boostBtn) ? 8 : 0);
   e.o1.frequency.setTargetAtTime(rpm * 2, t, 0.12); e.o2.frequency.setTargetAtTime(rpm, t, 0.12); e.pop.frequency.setTargetAtTime(rpm, t, 0.12); e.f.frequency.setTargetAtTime(500 + sp * 700, t, 0.15);
-  set(e.g, play && PL.mode === 'bike' ? 0.05 + clamp(sp / 2.4, 0, 1) * 0.07 : 0);
+  set(e.g, play && PL.mode === 'bike' ? 0.05 + clamp(sp / (2.4 * KV), 0, 1) * 0.07 : 0);
   if (play){
     if (AU.lastMode && AU.lastMode !== PL.mode){
       if (PL.mode === 'swim') splash(t, 0.35);
@@ -120,10 +120,10 @@ function updateAudio(dt, dist){
       else if (AU.lastMode === 'bike') tone(t, 90, 40, 0.08, 0.4, 'sawtooth'); }
     // bước chân (đi, chạy) và quạt nước (bơi), theo nhịp hoạt ảnh
     if (PL.mode !== 'bike'){ var step = Math.floor(PL.phase / Math.PI);
-      if (step !== AU.lastPhase && PL.speed > 0.03){ var onSand = ST.G.hAt(PL.x, PL.z) < 0.36 && ST.G.zoneAt(PL.x, PL.z) < 10;
-        if (PL.mode === 'swim') burst(t, 1300, 0.7, 0.07, 0.22, 'lowpass'); else if (PL.y <= groundAt(PL.x, PL.z).y + 0.01) burst(t, onSand ? 700 : 1700, onSand ? 0.7 : 1.4, onSand ? 0.06 : 0.09, onSand ? 0.12 : 0.06); }
+      if (step !== AU.lastPhase && PL.speed > 0.03 * KV){ var onSand = ST.G.hAt(PL.x, PL.z) < 0.36 && ST.G.zoneAt(PL.x, PL.z) < 10;
+        if (PL.mode === 'swim') burst(t, 1300, 0.7, 0.07, 0.22, 'lowpass'); else if (PL.y <= groundAt(PL.x, PL.z).y + 0.01 * KS) burst(t, onSand ? 700 : 1700, onSand ? 0.7 : 1.4, onSand ? 0.06 : 0.09, onSand ? 0.12 : 0.06); }
       AU.lastPhase = step;
-      if (AU.lastVy < -0.3 && PL.vy === 0) burst(t, 300, 0.8, 0.14, 0.12, 'lowpass'); }
+      if (AU.lastVy < -0.3 * KS && PL.vy === 0) burst(t, 300, 0.8, 0.14, 0.12, 'lowpass'); }
     AU.lastVy = PL.vy; AU.lastMode = PL.mode;
   } else AU.lastMode = '';
 }

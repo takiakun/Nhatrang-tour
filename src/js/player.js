@@ -5,7 +5,10 @@ import { OSM, clamp, coastX, inBoard } from './geo.js';
 import { DP, JETTIES, LMP, b64arr, box, camera, cyl, glowMat, lampK, mat, radialTex, scene } from './scene.js';
 import { CHAR_GLB } from './character.js';
 /* ======================= PLAYER: chibi rider in a T-shirt & shorts, motorbike, swimming ======================= */
-var PS_ = 0.05;   // model units → world units (character ≈ 0.15 tall)
+// Cỡ người chơi so với bản cũ (nhân vật cao 7,75 m, xe dài 8,2 m, gấp ~4,5 lần thật): KS = 0,35 → người ~2,7 m, xe ~2,9 m, cùng độ phóng đại ×1,6 với nhà và đường.
+// Mọi hằng tuyệt đối gắn với kích thước (va chạm, khoảng cách, độ cao nhảy, ngưỡng bơi, độ nổi, camera) nhân KS; tốc độ nhân KV = KS × 1,3 (nhanh hơn tỉ lệ 30% cho đỡ chậm khi đi quãng dài).
+var KS = 0.35, KV = KS * 1.3;
+var PS_ = 0.05 * KS;   // model units → world units (character ≈ 0.054 tall)
 function atlasCanvas(){
   var c = document.createElement('canvas'); c.width = c.height = 256; var x = c.getContext('2d');
   var SK = '#f0c49b';
@@ -63,7 +66,7 @@ function deckAt(x, z){ var best = null, ix = Math.floor(x), iz = Math.floor(z);
   for (var j = 0; j < JETTIES.length; j++){ var J = JETTIES[j], dx = x - J[0], dz = z - J[1], c = Math.cos(J[4]), s = Math.sin(J[4]), lx = dx * c - dz * s, lz = dx * s + dz * c;
     if (Math.abs(lx) < J[2] + 0.02 && Math.abs(lz) < J[3] + 0.02) best = Math.max(best === null ? -9 : best, 0.6); }
   return best; }
-function groundAt(x, z){ var h = ST.G.hAt(x, z), d = deckAt(x, z); return d !== null && d > h ? { y:d + 0.02, deck:true, h:h } : { y:h, deck:false, h:h }; }
+function groundAt(x, z){ var h = ST.G.hAt(x, z), d = deckAt(x, z); return d !== null && d > h ? { y:d + 0.005, deck:true, h:h } : { y:h, deck:false, h:h }; }
 var colN = { x:0, z:0 };   // hướng đẩy ra (đơn vị) của lần collide() gần nhất, để biết đâm thẳng hay sượt
 function collide(p, rad){ var hit = false, x0 = p.x, z0 = p.z, ix = Math.floor(p.x), iz = Math.floor(p.z); COL.stamp++;
   for (var a = -1; a <= 1; a++) for (var b = -1; b <= 1; b++){ var L = COL.map.get(ckey(ix + a, iz + b)); if (!L) continue;
@@ -75,9 +78,9 @@ function collide(p, rad){ var hit = false, x0 = p.x, z0 = p.z, ix = Math.floor(p
       p.x = o.x + lx * o.c + lz * o.s; p.z = o.z - lx * o.s + lz * o.c; } }
   if (hit){ var ox_ = p.x - x0, oz_ = p.z - z0, ol = Math.hypot(ox_, oz_); colN.x = ol > 1e-7 ? ox_ / ol : 0; colN.z = ol > 1e-7 ? oz_ / ol : 0; }
   return hit; }
-// xe máy: vòng thân (r 0,03) + vòng mũi (r 0,022, trước tâm 0,055) để mũi xe không xuyên tường; colN là hướng đẩy trung bình
-function collideBike(p, yaw){ var hit = collide(p, 0.03), nx = hit ? colN.x : 0, nz = hit ? colN.z : 0, fx = Math.sin(yaw) * 0.055, fz = Math.cos(yaw) * 0.055, q = { x:p.x + fx, z:p.z + fz };
-  if (collide(q, 0.022)){ p.x = q.x - fx; p.z = q.z - fz; nx += colN.x; nz += colN.z; hit = true; if (collide(p, 0.03)){ nx += colN.x; nz += colN.z; } }
+// xe máy: vòng thân (r 0,03·KS) + vòng mũi (r 0,022·KS, trước tâm 0,055·KS) để mũi xe không xuyên tường; colN là hướng đẩy trung bình
+function collideBike(p, yaw){ var hit = collide(p, 0.03 * KS), nx = hit ? colN.x : 0, nz = hit ? colN.z : 0, fx = Math.sin(yaw) * 0.055 * KS, fz = Math.cos(yaw) * 0.055 * KS, q = { x:p.x + fx, z:p.z + fz };
+  if (collide(q, 0.022 * KS)){ p.x = q.x - fx; p.z = q.z - fz; nx += colN.x; nz += colN.z; hit = true; if (collide(p, 0.03 * KS)){ nx += colN.x; nz += colN.z; } }
   var l = Math.hypot(nx, nz); colN.x = l > 1e-6 ? nx / l : 0; colN.z = l > 1e-6 ? nz / l : 0; return hit; }
 // bề rộng đường OSM gần nhất (đơn vị), 0 nếu đang ở ngoài đường: xe chạy chậm lại trên đường nhỏ
 var ROADH = new Map();
@@ -95,7 +98,7 @@ function camBlock(tg, cam){ var skip = null, n = 24;   // chỉ xét nhà; sàn 
   for (var i = 0; i <= n; i++){ var t = i / n, x = tg.x + (cam.x - tg.x) * t, y = tg.y + (cam.y - tg.y) * t, z = tg.z + (cam.z - tg.z) * t, L = COL.map.get(ckey(Math.floor(x), Math.floor(z)));
     if (!L) continue;
     for (var k = 0; k < L.length; k++){ var o = COL.obbs[L[k]], dx = x - o.x, dz = z - o.z, lx = dx * o.c - dz * o.s, lz = dx * o.s + dz * o.c;
-      if (y > o.top || Math.abs(lx) >= o.hw + 0.02 || Math.abs(lz) >= o.hd + 0.02) continue;
+      if (y > o.top || Math.abs(lx) >= o.hw + 0.02 * KS || Math.abs(lz) >= o.hd + 0.02 * KS) continue;
       if (i === 0){ (skip || (skip = {}))[L[k]] = 1; continue; } if (skip && skip[L[k]]) continue;
       return Math.max(0.1, (i - 1.5) / n); } }
   return 1; }
@@ -158,8 +161,8 @@ function buildPlayer(B){
   buildCollision(B);
   var ch = buildCharacter(), bk = buildBike(), sp = spawnPoint();
   scene.add(ch.root); scene.add(bk.root);
-  PL = { ch:ch, bk:bk, mode:'walk', x:sp.x, z:sp.z, y:ST.G.hAt(sp.x, sp.z), yaw:Math.PI, speed:0, vy:0, phase:0, steer:0, bike:{ x:sp.x - 0.95, z:sp.z, yaw:Math.PI, speed:0 }, msgT:0, lean:0, lastInput:0 };
-  var bz = sp.z, bx = coastX(bz) - 2.6 + 0.12; PL.bike.x = bx; PL.bike.z = bz;
+  PL = { ch:ch, bk:bk, mode:'walk', x:sp.x, z:sp.z, y:ST.G.hAt(sp.x, sp.z), yaw:Math.PI, speed:0, vy:0, phase:0, steer:0, bike:{ x:sp.x - 0.28 * KS, z:sp.z, yaw:Math.PI, speed:0 }, msgT:0, lean:0, lastInput:0 };
+  var bz = sp.z, bx = sp.x - 0.28 * KS; PL.bike.x = bx; PL.bike.z = bz;
   placeBikeIdle(); placeChar(0, 0); loadKenneyChar();
 }
 /* ---------- nhân vật Kenney có xương (Mini Characters, CC0) ---------- */
@@ -174,12 +177,12 @@ function loadKenneyChar(){ if (!THREE.GLTFLoader || typeof CHAR_GLB === 'undefin
     gl.animations.forEach(function(a){ var ac = K.mixer.clipAction(a); if (a.name === 'jump'){ ac.setLoop(THREE.LoopOnce); ac.clampWhenFinished = true; } K.act[a.name] = ac; });
   }, function(e){ console.warn('Không nạp được nhân vật Kenney', e); }); } catch (e){ console.warn(e); } }
 function animKenney(dt){ var K = PL.ch.k; if (!K) return; var want = 'idle', ts = 1;
-  var air = PL.mode === 'walk' && PL.y > groundAt(PL.x, PL.z).y + 0.01;
+  var air = PL.mode === 'walk' && PL.y > groundAt(PL.x, PL.z).y + 0.01 * KS;
   if (PL.mode === 'bike') want = K.act.drive ? 'drive' : 'sit';
-  else if (PL.mode === 'swim'){ want = 'sprint'; ts = 0.45 + PL.speed * 0.25; }
+  else if (PL.mode === 'swim'){ want = 'sprint'; ts = 0.45 + PL.speed / KV * 0.25; }
   else if (air) want = PL.vy > 0 ? 'jump' : 'fall';
-  else if (PL.speed > 0.7){ want = 'sprint'; ts = clamp(PL.speed / 1.1, 0.6, 1.4); }
-  else if (PL.speed > 0.03){ want = 'walk'; ts = clamp(PL.speed / 0.5, 0.5, 1.5); }
+  else if (PL.speed > 0.7 * KV){ want = 'sprint'; ts = clamp(PL.speed / (1.1 * KV), 0.6, 1.4); }
+  else if (PL.speed > 0.03 * KV){ want = 'walk'; ts = clamp(PL.speed / (0.5 * KV), 0.5, 1.5); }
   if (K.cur !== want && K.act[want]){ K.act[want].reset().fadeIn(0.15).play(); if (K.act[K.cur]) K.act[K.cur].fadeOut(0.15); K.cur = want; }
   if (K.act[want]) K.act[want].timeScale = ts;
   K.model.rotation.x = PL.mode === 'swim' ? 1.35 : 0; K.model.position.z = PL.mode === 'swim' ? -1.2 : 0;
@@ -193,14 +196,14 @@ function inputVec(){ var f = 0, s = 0;
   if (ST.keys.KeyW || ST.keys.ArrowUp) f += 1; if (ST.keys.KeyS || ST.keys.ArrowDown) f -= 1; if (ST.keys.KeyD || ST.keys.ArrowRight) s += 1; if (ST.keys.KeyA || ST.keys.ArrowLeft) s -= 1;
   if (joy.on){ f += joy.y; s += joy.x; } return { f:clamp(f, -1, 1), s:clamp(s, -1, 1), run:!!(ST.keys.ShiftLeft || ST.keys.ShiftRight || ST.boostBtn) }; }
 function toggleMount(){ if (!PL) return;
-  if (PL.mode === 'bike'){ var b = PL.bike, rx = -Math.cos(b.yaw) * 0.16, rz = Math.sin(b.yaw) * 0.16, cand = [[b.x + rx, b.z + rz], [b.x - rx, b.z - rz], [b.x, b.z]];
-    for (var i = 0; i < cand.length; i++){ var p = { x:cand[i][0], z:cand[i][1] }, g = groundAt(p.x, p.z); if (g.y > 0.02 || g.deck){ collide(p, 0.025); PL.x = p.x; PL.z = p.z; break; } }
+  if (PL.mode === 'bike'){ var b = PL.bike, rx = -Math.cos(b.yaw) * 0.16 * KS, rz = Math.sin(b.yaw) * 0.16 * KS, cand = [[b.x + rx, b.z + rz], [b.x - rx, b.z - rz], [b.x, b.z]];
+    for (var i = 0; i < cand.length; i++){ var p = { x:cand[i][0], z:cand[i][1] }, g = groundAt(p.x, p.z); if (g.y > 0.02 || g.deck){ collide(p, 0.025 * KS); PL.x = p.x; PL.z = p.z; break; } }
     PL.mode = 'walk'; b.speed = 0; PL.speed = 0; PL.yaw = b.yaw; scene.add(PL.ch.root); PL.ch.root.scale.setScalar(PS_); PL.y = groundAt(PL.x, PL.z).y; placeBikeIdle(); syncPlayBtns(); return; }
   if (PL.mode === 'swim'){ setMsg('Lên bờ rồi mới lên xe được'); return; }
   var d = Math.hypot(PL.bike.x - PL.x, PL.bike.z - PL.z);
-  if (d > 0.4){ var g2 = groundAt(PL.x + Math.sin(PL.yaw) * 0.2, PL.z + Math.cos(PL.yaw) * 0.2), np = { x:PL.x + Math.sin(PL.yaw) * 0.2, z:PL.z + Math.cos(PL.yaw) * 0.2 };
+  if (d > 0.4 * KS){ var g2 = groundAt(PL.x + Math.sin(PL.yaw) * 0.2 * KS, PL.z + Math.cos(PL.yaw) * 0.2 * KS), np = { x:PL.x + Math.sin(PL.yaw) * 0.2 * KS, z:PL.z + Math.cos(PL.yaw) * 0.2 * KS };
     if (g2.y < 0.03 && !g2.deck){ setMsg('Chỗ này không đậu xe được'); return; }
-    collide(np, 0.03); PL.bike.x = np.x; PL.bike.z = np.z; PL.bike.yaw = PL.yaw; setMsg('Xe đã tới'); }
+    collide(np, 0.03 * KS); PL.bike.x = np.x; PL.bike.z = np.z; PL.bike.yaw = PL.yaw; setMsg('Xe đã tới'); }
   PL.mode = 'bike'; PL.speed = 0; PL.yaw = PL.bike.yaw; PL.x = PL.bike.x; PL.z = PL.bike.z; PL.bk.inner.add(PL.ch.root);
   PL.ch.root.position.set(0, 0.36, -0.42); PL.ch.root.rotation.set(0, 0, 0); PL.ch.root.scale.setScalar(1); syncPlayBtns(); }
 
@@ -208,18 +211,18 @@ function toggleMount(){ if (!PL) return;
 function bikeBlock(b, x, z){ if (!inBoard(x, z, 3)) return 'board'; var g = groundAt(x, z); if (g.y < -0.02 && !g.deck) return 'water';
   if (ST.G.slopeAt(x, z) > 2.0 && g.y > groundAt(b.x, b.z).y) return 'slope'; return null; }
 function unstickBike(b){ b.stuckT = 0; b.speed = 0;
-  for (var r = 0.06; r <= 0.42; r += 0.06) for (var a = 0; a < 16; a++){ var ang = b.yaw + Math.PI + (a % 2 ? 1 : -1) * Math.ceil(a / 2) * 0.39, x = b.x + Math.sin(ang) * r, z = b.z + Math.cos(ang) * r;
+  for (var r = 0.06 * KS; r <= 0.42 * KS; r += 0.06 * KS) for (var a = 0; a < 16; a++){ var ang = b.yaw + Math.PI + (a % 2 ? 1 : -1) * Math.ceil(a / 2) * 0.39, x = b.x + Math.sin(ang) * r, z = b.z + Math.cos(ang) * r;
     if (bikeBlock(b, x, z)) continue; var p = { x:x, z:z }; if (collideBike(p, b.yaw)) continue; b.x = x; b.z = z; setMsg('Xe bị kẹt, đã nhích ra'); return; } }
 function updatePlayer(dt){
   if (!PL) return; var inp = inputVec(), C = PL.ch, t = performance.now() / 1000;
   if (PL.msgT > 0){ PL.msgT -= dt; if (PL.msgT <= 0) setMsg(''); }
   if (Math.abs(inp.f) + Math.abs(inp.s) > 0.05) PL.lastInput = t;
   if (PL.mode === 'bike'){
-    var b = PL.bike, rw = roadWidthAt(b.x, b.z), cap = rw > 0 && rw <= 0.24 ? 0.6 : (rw > 0 && rw <= 0.34 ? 0.8 : 1), maxS = (inp.run ? 2.4 : 1.6) * cap, ox = b.x, oz = b.z, target = inp.f > 0.05 ? maxS * inp.f : (inp.f < -0.05 ? (b.speed > 0.05 ? 0 : -0.35) : 0);
-    var acc = inp.f < -0.05 && b.speed > 0.05 ? 3.2 : (inp.f > 0.05 ? (b.speed > target + 0.05 ? 2.2 : 1.1) : 0.9);   // vào đường nhỏ thì phanh nhẹ về tốc độ phù hợp
+    var b = PL.bike, rw = roadWidthAt(b.x, b.z), cap = rw > 0 && rw <= 0.24 ? 0.6 : (rw > 0 && rw <= 0.34 ? 0.8 : 1), maxS = (inp.run ? 2.4 : 1.6) * KV * cap, ox = b.x, oz = b.z, target = inp.f > 0.05 ? maxS * inp.f : (inp.f < -0.05 ? (b.speed > 0.05 * KV ? 0 : -0.35 * KV) : 0);
+    var acc = KV * (inp.f < -0.05 && b.speed > 0.05 * KV ? 3.2 : (inp.f > 0.05 ? (b.speed > target + 0.05 * KV ? 2.2 : 1.1) : 0.9));   // vào đường nhỏ thì phanh nhẹ về tốc độ phù hợp
     b.speed += clamp(target - b.speed, -acc * dt, acc * dt);
     PL.steer += (-inp.s - PL.steer) * Math.min(1, dt * 6);
-    var turn = clamp(PL.steer * 2.4 * Math.max(Math.abs(inp.f) > 0.05 ? 0.7 : 0, clamp(Math.abs(b.speed) / 0.5, 0, 1)) * (b.speed >= 0 ? 1 : -1) / (1 + Math.abs(b.speed) * 0.25), -2.6, 2.6);
+    var turn = clamp(PL.steer * 2.4 * Math.max(Math.abs(inp.f) > 0.05 ? 0.7 : 0, clamp(Math.abs(b.speed) / (0.5 * KV), 0, 1)) * (b.speed >= 0 ? 1 : -1) / (1 + Math.abs(b.speed) / KV * 0.25), -2.6, 2.6);
     b.yaw += turn * dt;
     // di chuyển: thử bước đầy đủ, bị chặn (nước, dốc, mép bàn) thì thử từng trục để trượt dọc; chỉ dừng khi cả hai trục đều chặn
     var dx = Math.sin(b.yaw) * b.speed * dt, dz = Math.cos(b.yaw) * b.speed * dt, why = bikeBlock(b, b.x + dx, b.z + dz), nx = b.x + dx, nz = b.z + dz;
@@ -231,13 +234,13 @@ function updatePlayer(dt){
     if (collideBike(p, b.yaw)){ var hn = Math.max(0, -(b.speed >= 0 ? 1 : -1) * (Math.sin(b.yaw) * colN.x + Math.cos(b.yaw) * colN.z)); b.speed *= Math.exp(-hn * hn * 10 * dt); }   // đâm thẳng mới mất tốc độ, sượt tường thì gần như không
     b.x = p.x; b.z = p.z;
     // kẹt: giữ ga mà gần như không nhích → sau 0,5 s nhích ra chỗ trống gần nhất
-    if (inp.f > 0.05 && Math.hypot(b.x - ox, b.z - oz) < 0.04 * dt) b.stuckT = (b.stuckT || 0) + dt; else b.stuckT = Math.max(0, (b.stuckT || 0) - dt * 2);
+    if (inp.f > 0.05 && Math.hypot(b.x - ox, b.z - oz) < 0.04 * KS * dt) b.stuckT = (b.stuckT || 0) + dt; else b.stuckT = Math.max(0, (b.stuckT || 0) - dt * 2);
     if (b.stuckT > 0.5) unstickBike(b);
-    var gy2 = groundAt(b.x, b.z).y, ahead = groundAt(b.x + Math.sin(b.yaw) * 0.08, b.z + Math.cos(b.yaw) * 0.08).y, behind = groundAt(b.x - Math.sin(b.yaw) * 0.08, b.z - Math.cos(b.yaw) * 0.08).y;
-    var pitch = -Math.atan2(ahead - behind, 0.16);
-    PL.lean += ((-PL.steer * clamp(b.speed / 1.2, 0, 1) * 0.42) - PL.lean) * Math.min(1, dt * 5);
+    var gy2 = groundAt(b.x, b.z).y, ahead = groundAt(b.x + Math.sin(b.yaw) * 0.08 * KS, b.z + Math.cos(b.yaw) * 0.08 * KS).y, behind = groundAt(b.x - Math.sin(b.yaw) * 0.08 * KS, b.z - Math.cos(b.yaw) * 0.08 * KS).y;
+    var pitch = -Math.atan2(ahead - behind, 0.16 * KS);
+    PL.lean += ((-PL.steer * clamp(b.speed / (1.2 * KV), 0, 1) * 0.42) - PL.lean) * Math.min(1, dt * 5);
     PL.bk.root.position.set(b.x, gy2, b.z); PL.bk.root.rotation.set(pitch, b.yaw, PL.lean, 'YXZ');
-    PL.bk.steer.rotation.y = PL.steer * 0.45; PL.bk.wheels.forEach(function(w){ w.rotation.x += b.speed * dt / 0.021; });
+    PL.bk.steer.rotation.y = PL.steer * 0.45; PL.bk.wheels.forEach(function(w){ w.rotation.x += b.speed * dt / (PS_ * 0.42); });
     PL.x = b.x; PL.z = b.z; PL.y = gy2; PL.yaw = b.yaw; PL.speed = b.speed;
     C.body.rotation.set(0.32, 0, 0); C.body.position.y = 1.2;
     C.legs.forEach(function(l, i){ l.rotation.set(-1.05, 0, (i ? -1 : 1) * 0.14); }); C.arms.forEach(function(a, i){ a.rotation.set(-1.25, 0, (i ? -1 : 1) * -0.22); });
@@ -245,19 +248,19 @@ function updatePlayer(dt){
   } else {
     var th = ST.controls.getAzimuthalAngle(), fx = -Math.sin(th), fz = -Math.cos(th), rx = Math.cos(th), rz = -Math.sin(th);
     var mx = fx * inp.f + rx * inp.s, mz = fz * inp.f + rz * inp.s, ml = Math.hypot(mx, mz);
-    var swim = PL.mode === 'swim', spd = swim ? (inp.run ? 2.8 : 1.2) : (inp.run ? 1.1 : 0.5);   // đi bộ, chạy luôn chậm hơn xe máy (1.6 / 2.4)
+    var swim = PL.mode === 'swim', spd = KV * (swim ? (inp.run ? 2.8 : 1.2) : (inp.run ? 1.1 : 0.5));   // đi bộ, chạy luôn chậm hơn xe máy (1.6 / 2.4)
     var tgt = ml > 0.05 ? spd * Math.min(1, ml) : 0; PL.speed += (tgt - PL.speed) * Math.min(1, dt * 8);
     if (ml > 0.05){ var want = Math.atan2(mx, mz), dy = Math.atan2(Math.sin(want - PL.yaw), Math.cos(want - PL.yaw)); PL.yaw += dy * Math.min(1, dt * 10); }
-    if (PL.speed > 0.001){ var np = { x:PL.x + Math.sin(PL.yaw) * PL.speed * dt, z:PL.z + Math.cos(PL.yaw) * PL.speed * dt };
+    if (PL.speed > 0.001 * KV){ var np = { x:PL.x + Math.sin(PL.yaw) * PL.speed * dt, z:PL.z + Math.cos(PL.yaw) * PL.speed * dt };
       if (!inBoard(np.x, np.z, 3)){ np.x = PL.x; np.z = PL.z; }
-      collide(np, 0.025); PL.x = np.x; PL.z = np.z; }
+      collide(np, 0.025 * KS); PL.x = np.x; PL.z = np.z; }
     var gg = groundAt(PL.x, PL.z), floorY = gg.y;
-    if (!gg.deck && gg.y < -0.07){ if (PL.mode !== 'swim'){ PL.mode = 'swim'; syncPlayBtns(); } }
-    else if (PL.mode === 'swim' && (gg.y > -0.05 || gg.deck)){ PL.mode = 'walk'; syncPlayBtns(); }
-    if (PL.mode === 'swim'){ PL.vy = 0; PL.y += (-0.045 + waveHeightAt(PL.x, PL.z) - PL.y) * Math.min(1, dt * 6); }
-    else { if ((ST.keys.Space) && PL.y <= floorY + 0.002 && PL.vy <= 0) PL.vy = 0.55; PL.vy -= 2.6 * dt; PL.y += PL.vy * dt; if (PL.y <= floorY){ PL.y = floorY; PL.vy = 0; } }
-    PL.phase += dt * (PL.mode === 'swim' ? 5 + PL.speed * 5 : 6 + PL.speed * 22) * (PL.speed > 0.02 || PL.mode === 'swim' ? 1 : 0.15);
-    var s = Math.sin(PL.phase), amp = clamp(PL.speed / 0.5, 0, 1.4);
+    if (!gg.deck && gg.y < -0.07 * KS){ if (PL.mode !== 'swim'){ PL.mode = 'swim'; syncPlayBtns(); } }
+    else if (PL.mode === 'swim' && (gg.y > -0.05 * KS || gg.deck)){ PL.mode = 'walk'; syncPlayBtns(); }
+    if (PL.mode === 'swim'){ PL.vy = 0; PL.y += (-0.045 * KS + waveHeightAt(PL.x, PL.z) - PL.y) * Math.min(1, dt * 6); }
+    else { if ((ST.keys.Space) && PL.y <= floorY + 0.002 * KS && PL.vy <= 0) PL.vy = 0.55 * KS; PL.vy -= 2.6 * KS * dt; PL.y += PL.vy * dt; if (PL.y <= floorY){ PL.y = floorY; PL.vy = 0; } }
+    PL.phase += dt * (PL.mode === 'swim' ? 5 + PL.speed / KV * 5 : 6 + PL.speed / KV * 22) * (PL.speed > 0.02 * KV || PL.mode === 'swim' ? 1 : 0.15);
+    var s = Math.sin(PL.phase), amp = clamp(PL.speed / (0.5 * KV), 0, 1.4);
     if (PL.mode === 'swim'){ C.body.rotation.set(1.3, 0, Math.sin(PL.phase * 0.5) * 0.15); C.body.position.y = 0.55;
       C.arms.forEach(function(a, i){ a.rotation.set(-(PL.phase + i * Math.PI) % (Math.PI * 2), 0, (i ? -1 : 1) * 0.15); });
       C.legs.forEach(function(l, i){ l.rotation.set(Math.sin(PL.phase * 2.2 + i * Math.PI) * 0.35, 0, 0); }); C.head.rotation.set(-0.9, 0, 0); }
@@ -268,23 +271,23 @@ function updatePlayer(dt){
   }
   animKenney(dt);
   var lit = lampK > 0.01; PL.bk.glow.material.opacity = lampK; PL.bk.glow.visible = lit;
-  var spEl = document.getElementById('speedo'); if (spEl){ if (PL.mode === 'bike'){ spEl.hidden = false; spEl.firstChild.textContent = String(Math.round(Math.abs(PL.bike.speed) / 2.4 * 70)); } else spEl.hidden = true; }
+  var spEl = document.getElementById('speedo'); if (spEl){ if (PL.mode === 'bike'){ spEl.hidden = false; spEl.firstChild.textContent = String(Math.round(Math.abs(PL.bike.speed) / (2.4 * KV) * 70)); } else spEl.hidden = true; }
 }
 function followCamera(dt, dragging){
-  var tg = ST.controls.target, want = new THREE.Vector3(PL.x, PL.y + 0.09, PL.z), d = want.clone().sub(tg), k = 1 - Math.exp(-dt * 12);
+  var tg = ST.controls.target, want = new THREE.Vector3(PL.x, PL.y + 0.09 * KS, PL.z), d = want.clone().sub(tg), k = 1 - Math.exp(-dt * 12);
   d.multiplyScalar(k); tg.add(d); camera.position.add(d);
-  if (PL.mode === 'bike' && Math.abs(PL.bike.speed) > 0.25 && !dragging && performance.now() / 1000 - PLAY.lastDrag > 1.2){
+  if (PL.mode === 'bike' && Math.abs(PL.bike.speed) > 0.25 * KV && !dragging && performance.now() / 1000 - PLAY.lastDrag > 1.2){
     var off = camera.position.clone().sub(tg), r = Math.hypot(off.x, off.z), th = Math.atan2(off.x, off.z), wantTh = PL.bike.yaw + Math.PI, dth = Math.atan2(Math.sin(wantTh - th), Math.cos(wantTh - th));
     th += dth * Math.min(1, dt * 1.6); camera.position.x = tg.x + Math.sin(th) * r; camera.position.z = tg.z + Math.cos(th) * r; }
 }
 function teleportTo(L){ if (!PL) return; var c = L.anchor, best = null;
   for (var r = 0.8; r < 14 && !best; r += 0.6) for (var a = 0; a < 16; a++){ var x = c.x + Math.cos(a / 16 * 6.283) * r, z = c.z + Math.sin(a / 16 * 6.283) * r, g = groundAt(x, z);
-    if (inBoard(x, z, 4) && g.y > 0.3 && ST.G.slopeAt(x, z) < 0.6){ var p = { x:x, z:z }; if (!collide(p, 0.09)){ best = p; break; } } }
+    if (inBoard(x, z, 4) && g.y > 0.3 && ST.G.slopeAt(x, z) < 0.6){ var p = { x:x, z:z }; if (!collide(p, 0.09 * KS)){ best = p; break; } } }
   if (!best){ setMsg('Không tìm được chỗ đứng gần đó'); return; }
   var dx = best.x - PL.x, dz = best.z - PL.z;
-  if (PL.mode === 'bike'){ PL.bike.x = best.x; PL.bike.z = best.z; PL.bike.speed = 0; } else { PL.x = best.x; PL.z = best.z; PL.mode = 'walk'; PL.bike.x = best.x + 0.25; PL.bike.z = best.z; placeBikeIdle(); }
+  if (PL.mode === 'bike'){ PL.bike.x = best.x; PL.bike.z = best.z; PL.bike.speed = 0; } else { PL.x = best.x; PL.z = best.z; PL.mode = 'walk'; PL.bike.x = best.x + 0.25 * KS; PL.bike.z = best.z; placeBikeIdle(); }
   PL.x = best.x; PL.z = best.z; PL.y = groundAt(best.x, best.z).y;
   ST.controls.target.x += dx; ST.controls.target.z += dz; camera.position.x += dx; camera.position.z += dz; DP.valid = false; syncPlayBtns(); }
-function syncPlayBtns(){ var b = document.getElementById('btnMount'); if (!b || !PL) return; b.textContent = PL.mode === 'bike' ? 'Xuống xe' : (Math.hypot(PL.bike.x - PL.x, PL.bike.z - PL.z) > 0.4 ? 'Gọi xe' : 'Lên xe'); }
+function syncPlayBtns(){ var b = document.getElementById('btnMount'); if (!b || !PL) return; b.textContent = PL.mode === 'bike' ? 'Xuống xe' : (Math.hypot(PL.bike.x - PL.x, PL.bike.z - PL.z) > 0.4 * KS ? 'Gọi xe' : 'Lên xe'); }
 
-export { camBlock, PL, PLAY, buildPlayer, followCamera, groundAt, joy, syncPlayBtns, teleportTo, toggleMount, updatePlayer };
+export { KS, KV, camBlock, PL, PLAY, buildPlayer, followCamera, groundAt, joy, syncPlayBtns, teleportTo, toggleMount, updatePlayer };
