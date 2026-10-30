@@ -1,4 +1,5 @@
 import { THREE } from './three.js';
+import { waveHeightAt } from './ocean-waves.js';
 import { ST } from '../state.js';
 import { clamp, coastX, inBoard } from './geo.js';
 import { DP, JETTIES, LMP, b64arr, box, camera, cyl, glowMat, lampK, mat, radialTex, scene } from './scene.js';
@@ -206,7 +207,7 @@ function updatePlayer(dt){
     var gg = groundAt(PL.x, PL.z), floorY = gg.y;
     if (!gg.deck && gg.y < -0.07){ if (PL.mode !== 'swim'){ PL.mode = 'swim'; syncPlayBtns(); } }
     else if (PL.mode === 'swim' && (gg.y > -0.05 || gg.deck)){ PL.mode = 'walk'; syncPlayBtns(); }
-    if (PL.mode === 'swim'){ PL.vy = 0; PL.y += (-0.045 - PL.y) * Math.min(1, dt * 6); }
+    if (PL.mode === 'swim'){ PL.vy = 0; PL.y += (-0.045 + waveHeightAt(PL.x, PL.z) - PL.y) * Math.min(1, dt * 6); }
     else { if ((ST.keys.Space) && PL.y <= floorY + 0.002 && PL.vy <= 0) PL.vy = 0.55; PL.vy -= 2.6 * dt; PL.y += PL.vy * dt; if (PL.y <= floorY){ PL.y = floorY; PL.vy = 0; } }
     PL.phase += dt * (PL.mode === 'swim' ? 5 + PL.speed * 5 : 6 + PL.speed * 22) * (PL.speed > 0.02 || PL.mode === 'swim' ? 1 : 0.15);
     var s = Math.sin(PL.phase), amp = clamp(PL.speed / 0.5, 0, 1.4);
