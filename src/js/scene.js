@@ -345,23 +345,26 @@ function buildTerrain(){
 
 /* ---------- high-resolution ground patch that follows the camera / player ---------- */
 var DU = { tex:{ value:null }, box:{ value:new THREE.Vector4(0, 0, 1, 1) }, on:{ value:0 } };
-var DP = { size:LITE ? 26 : 34, res:LITE ? 768 : 1024, job:null, valid:false, cx:1e9, cz:1e9, textures:[], cur:0 };
+var DP = { size:LITE ? 26 : 34, base:LITE ? 26 : 34, res:LITE ? 768 : 1024, job:null, valid:false, cx:1e9, cz:1e9, textures:[], cur:0 };
 function initDetail(){
   for (var i = 0; i < 2; i++){ var c = document.createElement('canvas'); c.width = c.height = DP.res; var t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy()); DP.textures.push({ c:c, t:t }); }
   DU.tex.value = DP.textures[0].t; }
-function updateDetail(fx, fz, want){
+// cỡ mảng mặt đất nét cao theo khoảng cách camera (đơn vị): sát đất 6 (0,3 m/px), gần 14, xa như cũ; lên bậc xa chỉ khi vượt ngưỡng ×1,25 để không chớp
+function detailSize(dist){ var cur = DP.size, s = dist < 1.4 ? 6 : (dist < 5 ? 14 : DP.base);
+  if (s > cur){ if (cur === 6 && dist < 1.75) return 6; if (cur === 14 && dist < 6.25) return 14; } return s; }
+function updateDetail(fx, fz, want, dist){
   if (!want){ DU.on.value = 0; return; }
   if (DP.valid) DU.on.value = 1;
-  if (!DP.job){ var far = Math.max(Math.abs(fx - DP.cx), Math.abs(fz - DP.cz)) > DP.size * 0.2;
-    if (!DP.valid || far){ var cx = Math.round(fx), cz = Math.round(fz), slot = DP.textures[1 - DP.cur];
-      DP.job = { cx:cx, cz:cz, x0:cx - DP.size / 2, z0:cz - DP.size / 2, row:0, slot:slot, ctx:slot.c.getContext('2d') };
+  if (!DP.job){ var ws = detailSize(dist), far = ws !== DP.size || Math.max(Math.abs(fx - DP.cx), Math.abs(fz - DP.cz)) > DP.size * 0.2;
+    if (!DP.valid || far){ var cx = Math.round(fx), cz = Math.round(fz), slot = DP.textures[1 - DP.cur], sz = ws;
+      DP.job = { cx:cx, cz:cz, size:sz, x0:cx - sz / 2, z0:cz - sz / 2, row:0, slot:slot, ctx:slot.c.getContext('2d') };
       DP.job.img = DP.job.ctx.createImageData(DP.res, DP.res); } }
   var J = DP.job; if (!J) return;
   var rows = DP.valid ? (LITE ? 48 : 96) : DP.res, r1 = Math.min(DP.res, J.row + rows);
-  paintGround(J.img.data, DP.res, DP.res, ST.G, J.x0, J.z0, DP.size, DP.size, J.row, r1); J.row = r1;
-  if (J.row >= DP.res){ var ctx = J.ctx; ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.putImageData(J.img, 0, 0); worldCtx(ctx, DP.res, DP.res, J.x0, J.z0, DP.size, DP.size); drawOverlays(ctx, false);
-    J.slot.t.needsUpdate = true; DU.tex.value = J.slot.t; DU.box.value.set(J.x0, J.z0, DP.size, DP.size); DP.cur = DP.textures.indexOf(J.slot); DP.cx = J.cx; DP.cz = J.cz; DP.valid = true; DU.on.value = 1; DP.job = null; } }
+  paintGround(J.img.data, DP.res, DP.res, ST.G, J.x0, J.z0, J.size, J.size, J.row, r1); J.row = r1;
+  if (J.row >= DP.res){ var ctx = J.ctx; ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.putImageData(J.img, 0, 0); worldCtx(ctx, DP.res, DP.res, J.x0, J.z0, J.size, J.size); drawOverlays(ctx, false);
+    J.slot.t.needsUpdate = true; DU.tex.value = J.slot.t; DU.box.value.set(J.x0, J.z0, J.size, J.size); DP.size = J.size; DP.cur = DP.textures.indexOf(J.slot); DP.cx = J.cx; DP.cz = J.cz; DP.valid = true; DU.on.value = 1; DP.job = null; } }
 
 function perimeter(stepL){ var pts = [], C = [[BX1 - BR, BZ0 + BR, -Math.PI / 2], [BX1 - BR, BZ1 - BR, 0], [BX0 + BR, BZ1 - BR, Math.PI / 2], [BX0 + BR, BZ0 + BR, Math.PI]];
   var L = [[BX0 + BR, BZ0, BX1 - BR, BZ0], [BX1, BZ0 + BR, BX1, BZ1 - BR], [BX1 - BR, BZ1, BX0 + BR, BZ1], [BX0, BZ1 - BR, BX0, BZ0 + BR]];

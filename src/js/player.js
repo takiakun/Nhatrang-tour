@@ -38,10 +38,10 @@ function uvInto(geo, r, faces){ var uv = geo.attributes.uv;
 var PL = null; var PLAY = { on:false }; ST.keys = {}; var joy = { x:0, y:0, on:false }; ST.boostBtn = false;
 var COL = { map:new Map(), obbs:[], circ:[], stamp:0 }, DECK = new Map();
 function ckey(ix, iz){ return (ix + 2000) * 5000 + (iz + 2000); }
-function colAddOBB(x, z, w, d, r){ var i = COL.obbs.length; COL.obbs.push({ x:x, z:z, hw:w / 2, hd:d / 2, c:Math.cos(r), s:Math.sin(r), m:0 });
+function colAddOBB(x, z, w, d, r, top){ var i = COL.obbs.length; COL.obbs.push({ x:x, z:z, hw:w / 2, hd:d / 2, c:Math.cos(r), s:Math.sin(r), m:0, top:top == null ? 1e9 : top });   // top: độ cao đỉnh (camera đi qua phía trên được)
   var rad = Math.hypot(w, d) / 2; for (var ix = Math.floor(x - rad); ix <= Math.floor(x + rad); ix++) for (var iz = Math.floor(z - rad); iz <= Math.floor(z + rad); iz++){ var k = ckey(ix, iz), a = COL.map.get(k); if (!a){ a = []; COL.map.set(k, a); } a.push(i); } }
 function buildCollision(B){
-  [B.tubes, B.towers, B.mids, B.villas].forEach(function(list){ list.forEach(function(b){ colAddOBB(b.x, b.z, b.w, b.d, b.r); }); });
+  [B.tubes, B.towers, B.mids, B.villas].forEach(function(list){ list.forEach(function(b){ colAddOBB(b.x, b.z, b.w, b.d, b.r, (b.y || 0) + b.h + 0.1); }); });
   // hộp va chạm địa danh: thu nhỏ dần tới khi không còn cắt tim đường lớn (không chặn Trần Phú cạnh Yersin)
   [['ponagar', 1.3], ['cho-dam', 1.05], ['nha-tho', 0.4], ['tram-huong', 0.3], ['vien-hdh', 1.0], ['yersin', 0.55], ['bao-dai', 0.7], ['hon-do', 0.5], ['hon-chong', 0.8]].forEach(function(c){ var p = LMP[c[0]], k = 1.15;
     while (k > 0.45 && majorRoadInBox(p[0], p[1], c[1] * k / 2 + 0.05, 0.4)) k -= 0.15;
@@ -90,6 +90,15 @@ function roadWidthAt(x, z){ var best = 0, bd = 1e9, ix = Math.floor(x), iz = Mat
   return best; }
 
 
+// camera không xuyên nhà: từ điểm nhìn tg tới camera cam, trả t ∈ (0,1] (1 = thông thoáng); nhà chứa sẵn điểm nhìn thì bỏ qua
+function camBlock(tg, cam){ var skip = null, n = 24;   // chỉ xét nhà; sàn camera trên địa hình do constrain() (ui.js) lo, điểm nhìn nằm dưới mặt đất 15% nên không kiểm địa hình ở đây
+  for (var i = 0; i <= n; i++){ var t = i / n, x = tg.x + (cam.x - tg.x) * t, y = tg.y + (cam.y - tg.y) * t, z = tg.z + (cam.z - tg.z) * t, L = COL.map.get(ckey(Math.floor(x), Math.floor(z)));
+    if (!L) continue;
+    for (var k = 0; k < L.length; k++){ var o = COL.obbs[L[k]], dx = x - o.x, dz = z - o.z, lx = dx * o.c - dz * o.s, lz = dx * o.s + dz * o.c;
+      if (y > o.top || Math.abs(lx) >= o.hw + 0.02 || Math.abs(lz) >= o.hd + 0.02) continue;
+      if (i === 0){ (skip || (skip = {}))[L[k]] = 1; continue; } if (skip && skip[L[k]]) continue;
+      return Math.max(0.1, (i - 1.5) / n); } }
+  return 1; }
 function buildCharacter(){
   var tex = new THREE.CanvasTexture(atlasCanvas()); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
   var M = new THREE.MeshStandardMaterial({ map:tex, roughness:0.75 });
@@ -278,4 +287,4 @@ function teleportTo(L){ if (!PL) return; var c = L.anchor, best = null;
   ST.controls.target.x += dx; ST.controls.target.z += dz; camera.position.x += dx; camera.position.z += dz; DP.valid = false; syncPlayBtns(); }
 function syncPlayBtns(){ var b = document.getElementById('btnMount'); if (!b || !PL) return; b.textContent = PL.mode === 'bike' ? 'Xuống xe' : (Math.hypot(PL.bike.x - PL.x, PL.bike.z - PL.z) > 0.4 ? 'Gọi xe' : 'Lên xe'); }
 
-export { PL, PLAY, buildPlayer, followCamera, groundAt, joy, syncPlayBtns, teleportTo, toggleMount, updatePlayer };
+export { camBlock, PL, PLAY, buildPlayer, followCamera, groundAt, joy, syncPlayBtns, teleportTo, toggleMount, updatePlayer };

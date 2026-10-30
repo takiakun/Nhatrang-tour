@@ -3,7 +3,7 @@ import { ST } from '../state.js';
 import { BD, BW, BX0, BX1, BZ0, BZ1, GEO_LABELS, LM_DEF, OSM, P, RAIL, ROADS, ROAD_LABELS, boardClamp, buildGrid, clamp, coastX, genBuildings, genTrees, inBoard, islandAt, lerp, paintGround, segD2, toLL, worldCtx } from './geo.js';
 import { DP, LITE, LM, LMI, LMP, RESORT_HOTELS, SC, _d, anim, applyTod, buildBoats, buildBridges, buildCable, buildCity, buildLamps, buildLandmarks, buildResort, buildSkirt, buildSky, buildTerrain, buildTraffic, buildVegetation, camera, carPts, drawOverlays, fail, gy, initDetail, lampK, loader, osmMajorRoads, pickGroups, reduceMotion, renderer, roadPoint, sampleRoad, scene, stage, step, sun, sunDir, updateDetail } from './scene.js';
 import { buildCrowd } from './crowd.js';
-import { PL, PLAY, buildPlayer, followCamera, joy, syncPlayBtns, teleportTo, toggleMount, updatePlayer } from './player.js';
+import { camBlock, PL, PLAY, buildPlayer, followCamera, joy, syncPlayBtns, teleportTo, toggleMount, updatePlayer } from './player.js';
 import { AU, armAudio, honk, setSound, syncSoundBtn, updateAudio } from './audio.js';
 import { initWeather, realTod, sunPos, syncWxBtn, updateWeather } from './weather.js';
 import { buildOcean, setWind, updateOcean } from './ocean.js';
@@ -15,7 +15,7 @@ ST.controls = new THREE.OrbitControls(camera, renderer.domElement);
 ST.controls.enableDamping = true; ST.controls.dampingFactor = 0.09; ST.controls.screenSpacePanning = false;
 ST.controls.mouseButtons = { LEFT:THREE.MOUSE.PAN, MIDDLE:THREE.MOUSE.DOLLY, RIGHT:THREE.MOUSE.ROTATE };
 ST.controls.touches = { ONE:THREE.TOUCH.PAN, TWO:THREE.TOUCH.DOLLY_ROTATE };
-ST.controls.minDistance = 3; ST.controls.maxPolarAngle = 1.36; ST.controls.minPolarAngle = 0.06;
+ST.controls.minDistance = 0.4; ST.controls.maxPolarAngle = 1.36; ST.controls.minPolarAngle = 0.06;
 ST.controls.rotateSpeed = 0.6; ST.controls.panSpeed = 1.0; ST.controls.zoomSpeed = 1.0; ST.controls.autoRotateSpeed = 0.3;
 SC.near = 150; SC.far = 700;
 
@@ -35,13 +35,14 @@ function groundHit(r){ var o = r.origin, d = r.direction, t = 0, st = 0.2;
     if (y < -40) break; st = Math.max(0.15, t * 0.012 + 0.1); t += st; }
   return null; }
 stage.addEventListener('wheel', function(e){ if (!ready) return; e.preventDefault(); e.stopPropagation();
-  var dy = e.deltaY * (e.deltaMode === 1 ? 16 : 1), k = Math.exp(clamp(dy, -150, 150) * 0.0016);
+  var dy = e.deltaY * (e.deltaMode === 1 ? 16 : 1), d0 = camera.position.distanceTo(ST.controls.target), k = Math.exp(clamp(dy, -150, 150) * 0.0016 * (d0 < 3 ? 0.6 : 1));   // gần đất thì zoom chậm lại
   if (PLAY.on){ var off = camera.position.clone().sub(ST.controls.target), nl = clamp(off.length() * k, ST.controls.minDistance, ST.controls.maxDistance); camera.position.copy(ST.controls.target).add(off.setLength(nl)); return; }
   var dist = camera.position.distanceTo(ST.controls.target), nd = clamp(dist * k, ST.controls.minDistance, ST.controls.maxDistance); k = nd / dist;
   setNdc(e); var hit = groundHit(ray.ray) || ST.controls.target.clone();
   ST.controls.target.sub(hit).multiplyScalar(k).add(hit); camera.position.sub(hit).multiplyScalar(k).add(hit);
   if (ST.controls.autoRotate) setSpin(false); hideHint(); }, { capture:true, passive:false });
 
+var camDes = new THREE.Vector3(), camShort = new THREE.Vector3(), camShifted = false;
 /* ---------- camera fly ---------- */
 var tween = null;
 function sphOf(){ var o = camera.position.clone().sub(ST.controls.target), r = o.length(); return { r:r, phi:Math.acos(clamp(o.y / r, -1, 1)), th:Math.atan2(o.x, o.z) }; }
@@ -55,12 +56,13 @@ function stepTween(now){ var u = Math.min(1, (now - tween.t0) / tween.dur), e = 
 function constrain(){ var tg = ST.controls.target, c = boardClamp(clamp(tg.x, BX0 + 8, BX1 - 8), clamp(tg.z, BZ0 + 8, BZ1 - 8)), dx = c[0] - tg.x, dz = c[1] - tg.z;
   if (dx || dz){ tg.x += dx; tg.z += dz; camera.position.x += dx; camera.position.z += dz; }
   if (!tween && !PLAY.on){ var dy = (Math.max(ST.G.hAt(tg.x, tg.z), 0) * 0.85) - tg.y; if (Math.abs(dy) > 0.002){ tg.y += dy * 0.12; camera.position.y += dy * 0.12; } }
-  var gc = surfY(camera.position.x, camera.position.z) + 0.35; if (camera.position.y < gc) camera.position.y = gc; }
+  var gc = surfY(camera.position.x, camera.position.z) + (PLAY.on ? 0.03 : 0.05); if (camera.position.y < gc) camera.position.y = gc; }   // sàn camera: 1,5–2,5 m trên mặt đất (không phải 17 m như trước)
 
 /* ---------- shadows follow the view ---------- */
 var shadowKey = [1e9, 1e9, 0];
 function updateShadow(dist){
-  var half = clamp(dist * 0.75, 9, 240), hq = Math.pow(1.15, Math.round(Math.log(half) / Math.log(1.15))), tex = 2 * hq / sun.shadow.mapSize.x, tg = ST.controls.target;
+  var half = clamp(dist * 0.75, 1.5, 240), hq = Math.pow(1.15, Math.round(Math.log(half) / Math.log(1.15))), tex = 2 * hq / sun.shadow.mapSize.x, tg = ST.controls.target;
+  sun.shadow.normalBias = clamp(tex * 2, 0.004, 0.035);   // theo cỡ texel của khung bóng: gần đất khung nhỏ thì bias nhỏ, bóng không bị hở
   var cx = Math.round(tg.x / (tex * 4)) * tex * 4, cz = Math.round(tg.z / (tex * 4)) * tex * 4;
   if (ST.shadowDirty || hq !== shadowKey[2] || cx !== shadowKey[0] || cz !== shadowKey[1]){
     SC.left = -hq; SC.right = hq; SC.top = hq; SC.bottom = -hq; SC.updateProjectionMatrix();
@@ -113,7 +115,7 @@ function updateLabels(dist){
     var isSel = L.lm && L.lm.i === current;
     if (!labelsOn && !isSel) continue;
     if (L.kind === 'geo' && dist > homeDist * L.max) continue;
-    if (L.kind === 'road' && (dist > (L.minor ? 24 : 60) || Math.abs(L.pos.x - ST.controls.target.x) + Math.abs(L.pos.z - ST.controls.target.z) > dist * 2.2)) continue;
+    if (L.kind === 'road' && (dist > (L.minor ? 24 : 60) || Math.abs(L.pos.x - ST.controls.target.x) + Math.abs(L.pos.z - ST.controls.target.z) > Math.max(dist * 2.2, 3))) continue;
     pv.copy(L.pos).project(camera);
     if (!(pv.z < 1 && pv.x > -1.1 && pv.x < 1.1 && pv.y > -1.15 && pv.y < 1.2)) continue;
     L.sx = (pv.x * 0.5 + 0.5) * w; L.sy = (-pv.y * 0.5 + 0.5) * h; L.d = camera.position.distanceTo(L.pos); cand.push(L); }
@@ -231,7 +233,12 @@ function enterPlay(){ if (PLAY.on || !PL) return; PLAY.on = true; PLAY.lastDrag 
   saved = { min:ST.controls.minDistance, max:ST.controls.maxDistance, pol:ST.controls.maxPolarAngle };
   ST.controls.enablePan = false; ST.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE; ST.controls.touches.ONE = THREE.TOUCH.ROTATE; ST.controls.minDistance = 0.35; ST.controls.maxDistance = 9; ST.controls.maxPolarAngle = 1.45;
   document.getElementById('btnPlay').setAttribute('aria-pressed', 'true'); document.getElementById('playHud').hidden = false; syncPlayBtns(); DP.valid = false;
-  flyTo(new THREE.Vector3(PL.x, PL.y + 0.09, PL.z), 1.5, 1.08, PL.yaw + Math.PI, 1600); }
+  flyTo(new THREE.Vector3(PL.x, PL.y + 0.09, PL.z), CAMLV[camLevel][0], CAMLV[camLevel][1], PL.yaw + Math.PI, 1600); }
+// ba mức góc nhìn khi lái/đi bộ: gần, vừa (như cũ), xa; phím C hoặc nút "Góc nhìn"
+var CAMLV = [[0.5, 1.25, 'gần'], [1.5, 1.08, 'vừa'], [4, 0.9, 'xa']], camLevel = 1; try { var _cl = parseInt(localStorage.getItem('nt-cam'), 10); if (_cl >= 0 && _cl < 3) camLevel = _cl; } catch (e){}
+function cycleCam(){ if (!PLAY.on || tween || !PL) return; camLevel = (camLevel + 1) % 3; try { localStorage.setItem('nt-cam', String(camLevel)); } catch (e){}
+  flyTo(new THREE.Vector3(PL.x, PL.y + 0.09, PL.z), CAMLV[camLevel][0], CAMLV[camLevel][1], null, 450); syncCamBtn(); }
+function syncCamBtn(){ var b = document.getElementById('btnCam'); if (b) b.textContent = 'Góc nhìn: ' + CAMLV[camLevel][2]; }
 function setBoost(on){ ST.boostBtn = on; var bb = document.getElementById('btnBoost'); if (bb){ bb.setAttribute('aria-pressed', String(on)); bb.textContent = on ? 'Đang tăng ga' : 'Tăng ga'; } }
 function exitPlay(){ if (!PLAY.on) return; PLAY.on = false; setBoost(false); document.body.classList.remove('playing'); ST.keys = {}; joy.on = false; joy.x = joy.y = 0;
   ST.controls.enablePan = true; ST.controls.mouseButtons.LEFT = THREE.MOUSE.PAN; ST.controls.touches.ONE = THREE.TOUCH.PAN; ST.controls.minDistance = saved.min; ST.controls.maxDistance = saved.max; ST.controls.maxPolarAngle = saved.pol;
@@ -244,11 +251,13 @@ function setupPlay(){
     if (MOVE[e.code]){ ST.keys[e.code] = true; e.preventDefault(); }
     if (e.code === 'KeyE' && !e.repeat){ toggleMount(); e.preventDefault(); }
     if (e.code === 'KeyH' && !e.repeat){ honk(); e.preventDefault(); }
+    if (e.code === 'KeyC' && !e.repeat){ cycleCam(); e.preventDefault(); }
     if (e.code === 'Escape' && current < 0) exitPlay(); }, true);
   addEventListener('keyup', function(e){ if (MOVE[e.code]) ST.keys[e.code] = false; });
   addEventListener('blur', function(){ ST.keys = {}; });
   document.getElementById('btnMount').addEventListener('click', function(){ toggleMount(); });
   document.getElementById('btnHorn').addEventListener('click', honk);
+  document.getElementById('btnCam').addEventListener('click', cycleCam); syncCamBtn();
   ['playHud', 'joy'].forEach(function(id){ document.getElementById(id).addEventListener('contextmenu', function(e){ e.preventDefault(); }); });
   var bb = document.getElementById('btnBoost');
   // Tăng ga dạng công tắc: chạm một lần để giữ ga, chạm lần nữa để nhả (không phải giữ ngón tay)
@@ -353,11 +362,14 @@ function frame(now){
   ST.crowdU.uTime.value = ts; ST.crowdU.uCam.value.copy(camera.position); ST.crowdU.uFogColor.value.copy(scene.fog.color); ST.crowdU.uFogNear.value = scene.fog.near; ST.crowdU.uFogFar.value = scene.fog.far;
   if (PLAY.on && !tween){ updatePlayer(dt); followCamera(dt, PLAY.dragging); }
   if (tween) stepTween(now || performance.now());
+  if (camShifted){ if (camera.position.distanceToSquared(camShort) < 1e-9) camera.position.copy(camDes); camShifted = false; }   // trả camera về vị trí mong muốn trước khi điều khiển cập nhật
+  if (!PLAY.on) ST.controls.maxPolarAngle = lerp(1.5, 1.36, clamp((camera.position.distanceTo(ST.controls.target) - 1) / 5, 0, 1));   // gần đất cho nhìn ngang tới 86°, xa vẫn 78°
   ST.controls.update(); constrain();
+  camDes.copy(camera.position); if (!tween){ var cb = camBlock(ST.controls.target, camDes); if (cb < 1){ camera.position.lerpVectors(ST.controls.target, camDes, cb); var gc2 = surfY(camera.position.x, camera.position.z) + (PLAY.on ? 0.03 : 0.05); if (camera.position.y < gc2) camera.position.y = gc2; camShort.copy(camera.position); camShifted = true; } }   // rút ngắn rồi vẫn phải ở trên mặt đất (điểm nhìn nằm dưới mặt đất 15%)   // không xuyên nhà, địa hình
   var dist = camera.position.distanceTo(ST.controls.target), nn = clamp(dist * 0.008, 0.02, 6);
   if (Math.abs(nn - camera.near) > nn * 0.15){ camera.near = nn; camera.updateProjectionMatrix(); }
   updateShadow(dist);
-  updateDetail(PLAY.on && PL ? PL.x : ST.controls.target.x, PLAY.on && PL ? PL.z : ST.controls.target.z, PLAY.on || dist < 55);
+  updateDetail(PLAY.on && PL ? PL.x : ST.controls.target.x, PLAY.on && PL ? PL.z : ST.controls.target.z, PLAY.on || dist < 55, dist);
   renderFrame(dist, dt);
   updateWeather(dt, ts, dist); updateLabels(dist); updateHud(dist); updateAudio(dt, dist); updateLocate(dist, ts); governor(rawDt);
 }
