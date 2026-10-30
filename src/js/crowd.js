@@ -75,7 +75,7 @@ function genCrowd(n){
   var out = [], rc = mulberry32(321); function R(a, b){ return a + (b - a) * rc(); } function pk(a){ return a[(rc() * a.length) | 0]; }
   var zN = P(12.2600, 0)[1], zS = P(12.2125, 0)[1], BEACH = [0, 2, 3, 5, 6, 9, 9, 2], CITY = [0, 1, 3, 4, 8, 10, 7, 0, 3], TOUR = [6, 6, 9, 2, 0, 3, 1, 7];
   function push(ax, az, bx, bz, row, sp, yo){ var ya = ST.G.hAt(ax, az), yb = ST.G.hAt(bx, bz); if (yo == null && (ya < 0.05 || yb < 0.05)) return false;
-    out.push(ax, yo == null ? ya : yo, az, bx, yo == null ? yb : yo, bz, row, rc(), sp, row === 5 ? 0.082 : 0.087); return true; }
+    out.push(ax, yo == null ? ya : yo, az, bx, yo == null ? yb : yo, bz, row, rc(), sp * 0.5, row === 5 ? 0.041 : 0.0435); return true; }   // người ~2,8 m (khớp người chơi), tốc độ đi ×0,5 (1–2 m/s)
   var quota = { beach:0.3, idle:0.08, prom:0.15, swim:0.08, city:0.27, tour:0.12 }, made = 0, guard = 0;
   function beachPt(dmin, dmax){ var z = R(zN, zS), d = R(dmin, dmax); return [coastX(z) - d, z, d]; }
   var cityD = DIST.filter(function(D){ return D.style === 'city'; });
@@ -85,7 +85,7 @@ function genCrowd(n){
     if (r < quota.beach){ p = beachPt(0.12, 0.95); len = R(0.4, 2.5) * (rc() < 0.5 ? 1 : -1); z2 = p[1] + len; ok = push(p[0], p[1], coastX(z2) - p[2], z2, pk(BEACH), R(0.05, 0.09)); }
     else if (r < quota.beach + quota.idle){ p = beachPt(0.2, 1.0); ok = push(p[0], p[1], p[0], p[1], pk(BEACH), 0); }
     else if (r < quota.beach + quota.idle + quota.prom){ p = beachPt(1.5, 1.8); len = R(1, 5) * (rc() < 0.5 ? 1 : -1); z2 = p[1] + len; ok = push(p[0], p[1], coastX(z2) - p[2], z2, pk(TOUR.concat(CITY)), R(0.06, 0.1)); }
-    else if (r < quota.beach + quota.idle + quota.prom + quota.swim){ p = beachPt(-0.75, -0.12); len = R(0.1, 0.6) * (rc() < 0.5 ? 1 : -1); z2 = p[1] + len; ok = push(p[0], p[1], coastX(z2) - p[2], z2, 11, R(0.02, 0.04), -0.02); }
+    else if (r < quota.beach + quota.idle + quota.prom + quota.swim){ p = beachPt(-0.75, -0.12); len = R(0.1, 0.6) * (rc() < 0.5 ? 1 : -1); z2 = p[1] + len; ok = push(p[0], p[1], coastX(z2) - p[2], z2, 11, R(0.02, 0.04), -0.01); }
     else if (r < quota.beach + quota.idle + quota.prom + quota.swim + quota.city && citySegs){   // OSM: đi trên vỉa hè đường thật trong phố
       var sg = pk(citySegs), t0 = rc(), sd = (rc() < 0.5 ? 1 : -1) * (sg[4] / 2 + 0.035), dx = sg[2] - sg[0], dz = sg[3] - sg[1], sl = Math.hypot(dx, dz), ln = Math.min(sl * (1 - t0), R(0.3, 1.6));
       var ax2 = sg[0] + dx * t0 - dz / sl * sd, az2 = sg[1] + dz * t0 + dx / sl * sd; ok = push(ax2, az2, ax2 + dx / sl * ln, az2 + dz / sl * ln, pk(CITY), R(0.05, 0.08)); }

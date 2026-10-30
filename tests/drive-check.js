@@ -26,7 +26,7 @@ const BRIDGES = ['Cầu Xóm Bóng', 'Cầu Trần Phú'];
       const L = path.reduce((a, p, i) => i ? a + Math.hypot(p[0] - path[i - 1][0], p[1] - path[i - 1][1]) : 0, 0);
       await page.evaluate(([x, z, yaw]) => { const b = __nt.PL.bike; b.x = x; b.z = z; b.yaw = yaw; b.speed = 0; }, [sx, sz, Math.atan2(ux, uz)]);
       await page.keyboard.down('KeyW'); let prog = 0, msg = '', t0 = Date.now();
-      while (Date.now() - t0 < 4000 + L * 900){ await page.waitForTimeout(250);
+      while (Date.now() - t0 < 4000 + L * 2000){ await page.waitForTimeout(250);
         const s = await page.evaluate(() => { const b = __nt.PL.bike, m = document.getElementById('playMsg'); return { x:b.x, z:b.z, m:m ? m.textContent : '' }; });
         // lái theo tim đường (vật lý thật, chỉ chỉnh hướng): điểm trên đường cách xe ~1 đơn vị về phía trước
         let ni = 0, nd = 1e9; path.forEach((p, i) => { const d = Math.hypot(p[0] - s.x, p[1] - s.z); if (d < nd){ nd = d; ni = i; } });
@@ -37,6 +37,9 @@ const BRIDGES = ['Cầu Xóm Bóng', 'Cầu Trần Phú'];
       const ok = prog >= Math.min(path.length - 1, endIdx + 2); if (!ok) bad++;
       console.log((ok ? '✓ ' : '✗ ') + name + ' (tuyến ' + Math.round(L * 50) + ' m, đầu cầu bên kia ở mét ' + endIdx * 50 / 2 + '): tới mét ' + prog * 50 / 2 + (ok ? '' : ' — dừng' + (msg ? ': "' + msg + '"' : '')));
     } }
+  // tỉ lệ người chơi: xe máy dài ~2,9 m (PS_ = 0,05·KS), người ~2,7 m; không được phình lại gấp 4 lần thật
+  const ps = 0.05 * await page.evaluate(() => __nt.KS), pOk = ps > 0.01 && ps < 0.02; if (!pOk) bad++;
+  console.log((pOk ? '✓ ' : '✗ ') + 'Cỡ người chơi: xe máy dài ' + (1.65 * 2 * ps * 50).toFixed(1) + ' m, người cao ' + (3.1 * ps * 50).toFixed(1) + ' m (thật 1,9 / 1,7 m, thế giới ×1,6)');
   // đường nhỏ: chạy dọc 14 đường residential/hẻm chọn ngẫu nhiên (hạt giống cố định), lệch tim ±4 m như người lái thật; phải tới cuối, không bị nhà/vật cản giữ lại
   const smalls = await page.evaluate(() => { let seed = 20260430; const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296, ok = [];
     __nt.OSM.roads.forEach(R => { if (R.c < 5 || R.round || R.bridge || R.pts.length < 3) return; let L = 0; for (let i = 1; i < R.pts.length; i++) L += Math.hypot(R.pts[i][0] - R.pts[i - 1][0], R.pts[i][1] - R.pts[i - 1][1]);
@@ -58,7 +61,7 @@ const BRIDGES = ['Cầu Xóm Bóng', 'Cầu Trần Phú'];
     const ok = prog >= P.length - 2 && stall < 3000; if (!ok){ sBad++; sFail.push(R.name + ' (' + Math.round(R.L * 50) + ' m: tới điểm ' + prog + '/' + (P.length - 1) + ', đứng yên tối đa ' + (stall / 1000).toFixed(1) + ' s)'); } }
   const sOk = smalls.length >= 10 && sBad <= Math.floor(smalls.length * 0.15); if (!sOk) bad++;
   console.log((sOk ? '✓ ' : '✗ ') + 'Đường nhỏ: ' + (smalls.length - sBad) + '/' + smalls.length + ' đường chạy hết tuyến' + (sFail.length ? ' — kẹt: ' + sFail.join('; ') : ''));
-  // trượt dọc tường: xe sượt nhà ở góc 18° giữ ga 1,5 s phải đi tiếp dọc tường (bản cũ nhân tốc độ 0,92 mỗi khung nên chết máy sau ~0,3 s: ~0,25 đơn vị; bản mới ~0,8)
+  // trượt dọc tường: xe sượt nhà ở góc 18° giữ ga 1,5 s phải đi tiếp dọc tường (bản cũ nhân tốc độ 0,92 mỗi khung nên chết máy sau ~0,3 s: ~0,1 đơn vị; bản mới ~0,5 ở tốc độ thu nhỏ)
   const walls = await page.evaluate(() => { const L = []; __nt.B.tubes.forEach(b => { if (b.w >= 0.4) L.push({ x:b.x, z:b.z, w:b.w, d:b.d, r:b.r }); }); return L.filter((_, i) => i % 23 === 0).slice(0, 10); });
   let along = 0;
   for (const b of walls){ const c = Math.cos(b.r), sn = Math.sin(b.r), hw = b.w / 2, hd = b.d / 2, th = 18 * Math.PI / 180, lx0 = -hw + 0.03, lz0 = hd + 0.07;
@@ -67,8 +70,8 @@ const BRIDGES = ['Cầu Xóm Bóng', 'Cầu Trần Phú'];
     await page.keyboard.down('KeyW'); const t0 = Date.now(); while (Date.now() - t0 < 1500){ await page.waitForTimeout(100); await page.evaluate(y => { __nt.PL.bike.yaw = y; }, yaw); }
     const e = await page.evaluate(() => ({ x:__nt.PL.bike.x, z:__nt.PL.bike.z })); await page.keyboard.up('KeyW'); await page.waitForTimeout(150);
     along += ((e.x - b.x) * c - (e.z - b.z) * sn - lx0) / walls.length; }
-  const wOk = walls.length >= 8 && along > 0.5; if (!wOk) bad++;
-  console.log((wOk ? '✓ ' : '✗ ') + 'Trượt dọc tường: trung bình ' + (along * 50).toFixed(0) + ' m sau 1,5 s' + (wOk ? '' : ' (cần > 25 m)'));
+  const wOk = walls.length >= 8 && along > 0.2; if (!wOk) bad++;
+  console.log((wOk ? '✓ ' : '✗ ') + 'Trượt dọc tường: trung bình ' + (along * 50).toFixed(0) + ' m sau 1,5 s' + (wOk ? '' : ' (cần > 10 m)'));
   // đường lớn OSM phải được dựng liền: lấy điểm mỗi ~10 m trên đường OSM gốc, phải nằm trong lòng một đường đã dựng (ROADS_S)
   const gap = await page.evaluate(() => { const segs = new Map(), key = (x, z) => Math.floor(x) + ',' + Math.floor(z);
     __nt.ROADS_S.forEach(R => { if (R.rail) return; for (let i = 0; i < R.pts.length - 1; i++){ const a = R.pts[i], b = R.pts[i + 1], k = key(a.x, a.z); if (!segs.has(k)) segs.set(k, []); segs.get(k).push([a, b, R.w]); } });
