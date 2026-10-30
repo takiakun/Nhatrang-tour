@@ -1,6 +1,6 @@
 import { THREE } from './three.js';
 import { ST } from '../state.js';
-import { BD, BR, BW, BX0, BX1, BZ0, BZ1, DIST, FLOOR, H, ISLANDS, LLs, LM_DEF, LM_EXTRA, OSM, P, RAIL, ROUNDS, TOWER_F, TUBE_F, VB, boardClamp, clamp, coastX, fillPoly, ih, inBoard, landRuns, lerp, mulberry32, paintGround, resample, roundD, segD2, smooth, strokeLine, toLocal, toWorld, worldCtx } from './geo.js';
+import { genStreetTrees, BD, BR, BW, BX0, BX1, BZ0, BZ1, DIST, FLOOR, H, ISLANDS, LLs, LM_DEF, LM_EXTRA, OSM, P, RAIL, ROUNDS, TOWER_F, TUBE_F, VB, boardClamp, clamp, coastX, fillPoly, ih, inBoard, landRuns, lerp, mulberry32, paintGround, resample, roundD, segD2, smooth, strokeLine, toLocal, toWorld, worldCtx } from './geo.js';
 import { MODEL_DATA } from './models.js';
 /* ======================= SCENE (three.js r186) ======================= */
 var errEl = document.getElementById('err'), loader = document.getElementById('loader'), loaderText = document.getElementById('loaderText');
@@ -524,17 +524,15 @@ function buildVegetation(T, B){
   var forest = [], round = [];
   T.round.forEach(function(t){ if (t.y > 1.1 && ST.G.zoneAt(t.x, t.z) < 10) forest.push(t); else round.push(t); });
   B.yard.forEach(function(p){ var y = ST.G.hAt(p.x, p.z); if (y > 0.3 && !ST.MK(p.x, p.z)) round.push({ x:p.x, z:p.z, y:y, s:0.22 + ih(p.x * 10, p.z * 10) * 0.12, a:0, sq:1 }); });
-  ST.ROADS_S.forEach(function(R){ R.pts.forEach(function(p, i){ if (i % 3 || p.br || p.cw) return; [-1, 1].forEach(function(s){ var x = p.x - p.fz * s * (R.w / 2 + 0.2), z = p.z + p.fx * s * (R.w / 2 + 0.2), y = ST.G.hAt(x, z), zn = ST.G.zoneAt(x, z); if (roundD(x, z) < 0.15) return;
-      if (y > 0.36 && (zn >= 10 || zn === 1) && coastX(z) - x > 2.3) round.push({ x:x, z:z, y:y, s:0.2 + ih(i, s + 5) * 0.06, a:0, sq:1 }); }); }); });
+  var SW = genStreetTrees(ST.ROADS_S, ST.G, ST.MK); SW.trees.forEach(function(t){ round.push(t); });   // cây ven đường, hàng dừa sát bãi biển (geo.js)
   var TC = ['#5f9e48','#4f9140','#6aa84f','#3f8636','#78ad52','#58923f'], FC = ['#4a8a3c','#3f7d36','#56913f','#467f35','#5a8f3e','#6d9442','#7f9a4a'];
   instChunks(forestGeo, VCM, forest, function(d, it, c){ d.position.set(it.x, it.y - 0.05, it.z); d.rotation.y = it.a; d.scale.set(it.s, it.s * it.sq, it.s); c.set(FC[(ih(it.x * 7, it.z * 3) * FC.length) | 0]); });
   instChunks(canopyGeo, VCM, round, function(d, it, c){ d.position.set(it.x, it.y - 0.02, it.z); d.rotation.y = it.a; d.scale.setScalar(it.s * 1.5); c.set(TC[(ih(it.x * 5, it.z * 9) * TC.length) | 0]); });
   instChunks(coneTreeGeo, VCM, T.cones, function(d, it, c){ d.position.set(it.x, it.y - 0.05, it.z); d.rotation.y = it.a; d.scale.setScalar(it.s * 1.4); c.set(['#3e7a38','#356f31','#4a8a3e'][(ih(it.x, it.z) * 3) | 0]); });
   var palms = T.palms.slice();
-  function palmLine(lat0, lat1, off, stepL){ for (var z = P(lat0, 0)[1]; z <= P(lat1, 0)[1]; z += stepL){ var x = coastX(z) - off; if (!ST.MK(x, z) || true){ var y = ST.G.hAt(x, z); if (y > 0.25) palms.push({ x:x, z:z, y:y, s:0.95 + ih(z * 10, off * 10) * 0.35, a:ih(z * 3, 7) * 6.28, t:(ih(z * 5, 3) - 0.5) * 0.25 }); } } }
   ROUNDS.forEach(function(o, k){ var ir = o.r - o.w / 2; if (ir < 0.22) return; var y = ST.G.hAt(o.x, o.z), n = ir > 0.5 ? 4 : 2;   // cây cọ trên đảo bùng binh
     palms.push({ x:o.x, z:o.z, y:y, s:0.9, a:k, t:0.05 }); for (var i = 0; i < n; i++){ var a = i / n * 6.283 + k; palms.push({ x:o.x + Math.cos(a) * ir * 0.5, z:o.z + Math.sin(a) * ir * 0.5, y:y, s:0.75, a:a, t:0.1 }); } });
-  palmLine(12.2620, 12.2104, 1.22, 0.42); palmLine(12.2620, 12.2104, 2.05, 0.5); palmLine(12.2985, 12.2668, 1.15, 0.55);
+  palms = palms.concat(SW.palms); ST.streetPalms = SW.palms;
   var keepClear = function(p){ for (var i = 0; i < KEEP.length; i++) if (Math.hypot(p.x - KEEP[i][0], p.z - KEEP[i][1]) < KEEP[i][2] * 0.8) return false; return true; };
   palms = palms.filter(keepClear);
   instChunks(palmGeo, VCM, palms, function(d, it, c){ d.position.set(it.x, it.y - 0.02, it.z); d.rotation.set(it.t, it.a, 0); d.scale.setScalar(it.s); c.set(['#ffffff','#eef6df','#f6f1e2'][(ih(it.x * 3, it.z) * 3) | 0]); });
