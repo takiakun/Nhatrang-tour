@@ -1,7 +1,7 @@
 import { THREE } from './three.js';
 import { waveHeightAt } from './ocean-waves.js';
 import { ST } from '../state.js';
-import { clamp, coastX, inBoard } from './geo.js';
+import { OSM, clamp, coastX, inBoard } from './geo.js';
 import { DP, JETTIES, LMP, b64arr, box, camera, cyl, glowMat, lampK, mat, radialTex, scene } from './scene.js';
 import { CHAR_GLB } from './character.js';
 /* ======================= PLAYER: chibi rider in a T-shirt & shorts, motorbike, swimming ======================= */
@@ -42,12 +42,21 @@ function colAddOBB(x, z, w, d, r){ var i = COL.obbs.length; COL.obbs.push({ x:x,
   var rad = Math.hypot(w, d) / 2; for (var ix = Math.floor(x - rad); ix <= Math.floor(x + rad); ix++) for (var iz = Math.floor(z - rad); iz <= Math.floor(z + rad); iz++){ var k = ckey(ix, iz), a = COL.map.get(k); if (!a){ a = []; COL.map.set(k, a); } a.push(i); } }
 function buildCollision(B){
   [B.tubes, B.towers, B.mids, B.villas].forEach(function(list){ list.forEach(function(b){ colAddOBB(b.x, b.z, b.w, b.d, b.r); }); });
-  [['ponagar', 1.3], ['cho-dam', 1.05], ['nha-tho', 0.4], ['tram-huong', 0.3], ['vien-hdh', 1.0], ['yersin', 0.55], ['bao-dai', 0.7], ['hon-do', 0.5], ['hon-chong', 0.8]].forEach(function(c){ var p = LMP[c[0]]; colAddOBB(p[0], p[1], c[1] * 1.6, c[1] * 1.6, 0.4); });
+  // hộp va chạm địa danh: thu nhỏ dần tới khi không còn cắt tim đường lớn (không chặn Trần Phú cạnh Yersin)
+  [['ponagar', 1.3], ['cho-dam', 1.05], ['nha-tho', 0.4], ['tram-huong', 0.3], ['vien-hdh', 1.0], ['yersin', 0.55], ['bao-dai', 0.7], ['hon-do', 0.5], ['hon-chong', 0.8]].forEach(function(c){ var p = LMP[c[0]], k = 1.15;
+    while (k > 0.45 && majorRoadInBox(p[0], p[1], c[1] * k / 2 + 0.05, 0.4)) k -= 0.15;
+    colAddOBB(p[0], p[1], c[1] * k, c[1] * k, 0.4); });
   [LMP.pagoda, LMP.buddha].forEach(function(p){ colAddOBB(p[0], p[1], 0.75, 0.6, 0.1); });
   [LMP.cableA, LMP.cableB].forEach(function(p){ colAddOBB(p[0], p[1], 0.45, 0.45, 0); });
+  buildRoadHash();
   // mặt cầu (br) và đường đắp qua chỗ thấp (cw) đều là mặt đường xe chạy được
   ST.ROADS_S.concat([ST.RAIL_S]).forEach(function(R){ R.pts.forEach(function(p){ if (!p.br && !p.cw) return; var k = ckey(Math.floor(p.x), Math.floor(p.z)), a = DECK.get(k); if (!a){ a = []; DECK.set(k, a); } a.push({ x:p.x, z:p.z, y:p.y, r:Math.max(0.3, (R.rail ? 0.5 : R.w + 0.16) / 2 + 0.04) }); }); });
 }
+function majorRoadInBox(x, z, half, r){ var cs = Math.cos(r), sn = Math.sin(r), hit = false;
+  ST.ROADS_S.forEach(function(R){ if (hit || R.rail || R.w < 0.3) return;
+    for (var i = 0; i < R.pts.length - 1 && !hit; i++){ var a = R.pts[i], b = R.pts[i + 1], n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.1));
+      for (var k = 0; k <= n; k++){ var dx = a.x + (b.x - a.x) * k / n - x, dz = a.z + (b.z - a.z) * k / n - z, lx = dx * cs - dz * sn, lz = dx * sn + dz * cs; if (Math.abs(lx) < half && Math.abs(lz) < half){ hit = true; break; } } } });
+  return hit; }
 function deckAt(x, z){ var best = null, ix = Math.floor(x), iz = Math.floor(z);
   for (var a = -1; a <= 1; a++) for (var b = -1; b <= 1; b++){ var L = DECK.get(ckey(ix + a, iz + b)); if (!L) continue;
     for (var i = 0; i < L.length; i++){ var q = L[i]; if (Math.hypot(q.x - x, q.z - z) < q.r && (best === null || q.y > best)) best = q.y; } }
@@ -55,7 +64,8 @@ function deckAt(x, z){ var best = null, ix = Math.floor(x), iz = Math.floor(z);
     if (Math.abs(lx) < J[2] + 0.02 && Math.abs(lz) < J[3] + 0.02) best = Math.max(best === null ? -9 : best, 0.6); }
   return best; }
 function groundAt(x, z){ var h = ST.G.hAt(x, z), d = deckAt(x, z); return d !== null && d > h ? { y:d + 0.02, deck:true, h:h } : { y:h, deck:false, h:h }; }
-function collide(p, rad){ var hit = false, ix = Math.floor(p.x), iz = Math.floor(p.z); COL.stamp++;
+var colN = { x:0, z:0 };   // hướng đẩy ra (đơn vị) của lần collide() gần nhất, để biết đâm thẳng hay sượt
+function collide(p, rad){ var hit = false, x0 = p.x, z0 = p.z, ix = Math.floor(p.x), iz = Math.floor(p.z); COL.stamp++;
   for (var a = -1; a <= 1; a++) for (var b = -1; b <= 1; b++){ var L = COL.map.get(ckey(ix + a, iz + b)); if (!L) continue;
     for (var i = 0; i < L.length; i++){ var o = COL.obbs[L[i]]; if (o.m === COL.stamp) continue; o.m = COL.stamp;
       var dx = p.x - o.x, dz = p.z - o.z, lx = dx * o.c - dz * o.s, lz = dx * o.s + dz * o.c, qx = clamp(lx, -o.hw, o.hw), qz = clamp(lz, -o.hd, o.hd), ex = lx - qx, ez = lz - qz, d2 = ex * ex + ez * ez;
@@ -63,7 +73,22 @@ function collide(p, rad){ var hit = false, ix = Math.floor(p.x), iz = Math.floor
       if (d2 > 1e-10){ var d = Math.sqrt(d2), k = (rad - d) / d; lx += ex * k; lz += ez * k; }
       else { var px = o.hw - Math.abs(lx), pz = o.hd - Math.abs(lz); if (px < pz) lx = (lx < 0 ? -1 : 1) * (o.hw + rad); else lz = (lz < 0 ? -1 : 1) * (o.hd + rad); }
       p.x = o.x + lx * o.c + lz * o.s; p.z = o.z - lx * o.s + lz * o.c; } }
+  if (hit){ var ox_ = p.x - x0, oz_ = p.z - z0, ol = Math.hypot(ox_, oz_); colN.x = ol > 1e-7 ? ox_ / ol : 0; colN.z = ol > 1e-7 ? oz_ / ol : 0; }
   return hit; }
+// xe máy: vòng thân (r 0,03) + vòng mũi (r 0,022, trước tâm 0,055) để mũi xe không xuyên tường; colN là hướng đẩy trung bình
+function collideBike(p, yaw){ var hit = collide(p, 0.03), nx = hit ? colN.x : 0, nz = hit ? colN.z : 0, fx = Math.sin(yaw) * 0.055, fz = Math.cos(yaw) * 0.055, q = { x:p.x + fx, z:p.z + fz };
+  if (collide(q, 0.022)){ p.x = q.x - fx; p.z = q.z - fz; nx += colN.x; nz += colN.z; hit = true; if (collide(p, 0.03)){ nx += colN.x; nz += colN.z; } }
+  var l = Math.hypot(nx, nz); colN.x = l > 1e-6 ? nx / l : 0; colN.z = l > 1e-6 ? nz / l : 0; return hit; }
+// bề rộng đường OSM gần nhất (đơn vị), 0 nếu đang ở ngoài đường: xe chạy chậm lại trên đường nhỏ
+var ROADH = new Map();
+function buildRoadHash(){ if (!OSM) return; OSM.roads.forEach(function(R){ if (R.round) return; for (var i = 0; i < R.pts.length - 1; i++){ var a = R.pts[i], b = R.pts[i + 1], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.5)), seg = [a[0], a[1], b[0], b[1], R.w], seen = {};
+    for (var k = 0; k <= n; k++){ var cx = Math.floor(a[0] + (b[0] - a[0]) * k / n), cz = Math.floor(a[1] + (b[1] - a[1]) * k / n), key = ckey(cx, cz); if (seen[key]) continue; seen[key] = 1; var L = ROADH.get(key); if (!L){ L = []; ROADH.set(key, L); } L.push(seg); } } }); }
+function roadWidthAt(x, z){ var best = 0, bd = 1e9, ix = Math.floor(x), iz = Math.floor(z);
+  for (var a = -1; a <= 1; a++) for (var b = -1; b <= 1; b++){ var L = ROADH.get(ckey(ix + a, iz + b)); if (!L) continue;
+    for (var i = 0; i < L.length; i++){ var q = L[i], vx = q[2] - q[0], vz = q[3] - q[1], l2 = vx * vx + vz * vz || 1, t = clamp(((x - q[0]) * vx + (z - q[1]) * vz) / l2, 0, 1), d = Math.hypot(x - q[0] - vx * t, z - q[1] - vz * t);
+      if (d < q[4] / 2 + 0.04 && d - q[4] / 2 < bd){ bd = d - q[4] / 2; best = q[4]; } } }
+  return best; }
+
 
 function buildCharacter(){
   var tex = new THREE.CanvasTexture(atlasCanvas()); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
@@ -160,32 +185,45 @@ function inputVec(){ var f = 0, s = 0;
   if (joy.on){ f += joy.y; s += joy.x; } return { f:clamp(f, -1, 1), s:clamp(s, -1, 1), run:!!(ST.keys.ShiftLeft || ST.keys.ShiftRight || ST.boostBtn) }; }
 function toggleMount(){ if (!PL) return;
   if (PL.mode === 'bike'){ var b = PL.bike, rx = -Math.cos(b.yaw) * 0.16, rz = Math.sin(b.yaw) * 0.16, cand = [[b.x + rx, b.z + rz], [b.x - rx, b.z - rz], [b.x, b.z]];
-    for (var i = 0; i < cand.length; i++){ var p = { x:cand[i][0], z:cand[i][1] }, g = groundAt(p.x, p.z); if (g.y > 0.02 || g.deck){ collide(p, 0.045); PL.x = p.x; PL.z = p.z; break; } }
+    for (var i = 0; i < cand.length; i++){ var p = { x:cand[i][0], z:cand[i][1] }, g = groundAt(p.x, p.z); if (g.y > 0.02 || g.deck){ collide(p, 0.025); PL.x = p.x; PL.z = p.z; break; } }
     PL.mode = 'walk'; b.speed = 0; PL.speed = 0; PL.yaw = b.yaw; scene.add(PL.ch.root); PL.ch.root.scale.setScalar(PS_); PL.y = groundAt(PL.x, PL.z).y; placeBikeIdle(); syncPlayBtns(); return; }
   if (PL.mode === 'swim'){ setMsg('Lên bờ rồi mới lên xe được'); return; }
   var d = Math.hypot(PL.bike.x - PL.x, PL.bike.z - PL.z);
   if (d > 0.4){ var g2 = groundAt(PL.x + Math.sin(PL.yaw) * 0.2, PL.z + Math.cos(PL.yaw) * 0.2), np = { x:PL.x + Math.sin(PL.yaw) * 0.2, z:PL.z + Math.cos(PL.yaw) * 0.2 };
     if (g2.y < 0.03 && !g2.deck){ setMsg('Chỗ này không đậu xe được'); return; }
-    collide(np, 0.07); PL.bike.x = np.x; PL.bike.z = np.z; PL.bike.yaw = PL.yaw; setMsg('Xe đã tới'); }
+    collide(np, 0.03); PL.bike.x = np.x; PL.bike.z = np.z; PL.bike.yaw = PL.yaw; setMsg('Xe đã tới'); }
   PL.mode = 'bike'; PL.speed = 0; PL.yaw = PL.bike.yaw; PL.x = PL.bike.x; PL.z = PL.bike.z; PL.bk.inner.add(PL.ch.root);
   PL.ch.root.position.set(0, 0.36, -0.42); PL.ch.root.rotation.set(0, 0, 0); PL.ch.root.scale.setScalar(1); syncPlayBtns(); }
 
+// lý do xe không vào được (x, z): 'board' hết bàn, 'water' dưới nước, 'slope' quá dốc, null nếu đi được
+function bikeBlock(b, x, z){ if (!inBoard(x, z, 3)) return 'board'; var g = groundAt(x, z); if (g.y < -0.02 && !g.deck) return 'water';
+  if (ST.G.slopeAt(x, z) > 2.0 && g.y > groundAt(b.x, b.z).y) return 'slope'; return null; }
+function unstickBike(b){ b.stuckT = 0; b.speed = 0;
+  for (var r = 0.06; r <= 0.42; r += 0.06) for (var a = 0; a < 16; a++){ var ang = b.yaw + Math.PI + (a % 2 ? 1 : -1) * Math.ceil(a / 2) * 0.39, x = b.x + Math.sin(ang) * r, z = b.z + Math.cos(ang) * r;
+    if (bikeBlock(b, x, z)) continue; var p = { x:x, z:z }; if (collideBike(p, b.yaw)) continue; b.x = x; b.z = z; setMsg('Xe bị kẹt, đã nhích ra'); return; } }
 function updatePlayer(dt){
   if (!PL) return; var inp = inputVec(), C = PL.ch, t = performance.now() / 1000;
   if (PL.msgT > 0){ PL.msgT -= dt; if (PL.msgT <= 0) setMsg(''); }
   if (Math.abs(inp.f) + Math.abs(inp.s) > 0.05) PL.lastInput = t;
   if (PL.mode === 'bike'){
-    var b = PL.bike, maxS = inp.run ? 2.4 : 1.6, target = inp.f > 0.05 ? maxS * inp.f : (inp.f < -0.05 ? (b.speed > 0.05 ? 0 : -0.35) : 0);
-    var acc = inp.f < -0.05 && b.speed > 0.05 ? 3.2 : (inp.f > 0.05 ? 1.1 : 0.9);
+    var b = PL.bike, rw = roadWidthAt(b.x, b.z), cap = rw > 0 && rw <= 0.24 ? 0.6 : (rw > 0 && rw <= 0.34 ? 0.8 : 1), maxS = (inp.run ? 2.4 : 1.6) * cap, ox = b.x, oz = b.z, target = inp.f > 0.05 ? maxS * inp.f : (inp.f < -0.05 ? (b.speed > 0.05 ? 0 : -0.35) : 0);
+    var acc = inp.f < -0.05 && b.speed > 0.05 ? 3.2 : (inp.f > 0.05 ? (b.speed > target + 0.05 ? 2.2 : 1.1) : 0.9);   // vào đường nhỏ thì phanh nhẹ về tốc độ phù hợp
     b.speed += clamp(target - b.speed, -acc * dt, acc * dt);
     PL.steer += (-inp.s - PL.steer) * Math.min(1, dt * 6);
-    var turn = PL.steer * 2.0 * Math.max(Math.abs(inp.f) > 0.05 ? 0.45 : 0, clamp(Math.abs(b.speed) / 0.5, 0, 1)) * (b.speed >= 0 ? 1 : -1) / (1 + Math.abs(b.speed) * 0.25);
+    var turn = clamp(PL.steer * 2.4 * Math.max(Math.abs(inp.f) > 0.05 ? 0.7 : 0, clamp(Math.abs(b.speed) / 0.5, 0, 1)) * (b.speed >= 0 ? 1 : -1) / (1 + Math.abs(b.speed) * 0.25), -2.6, 2.6);
     b.yaw += turn * dt;
-    var nx = b.x + Math.sin(b.yaw) * b.speed * dt, nz = b.z + Math.cos(b.yaw) * b.speed * dt, g = groundAt(nx, nz);
-    if (!inBoard(nx, nz, 3)){ b.speed = 0; setMsg('Hết bản đồ rồi'); }
-    else if (g.y < 0.04 && !g.deck){ b.speed = 0; if (PL.msgT <= 0) setMsg('Xe máy không chạy được dưới nước'); }
-    else if (ST.G.slopeAt(nx, nz) > 1.6 && g.y > groundAt(b.x, b.z).y){ b.speed *= 0.5; if (PL.msgT <= 0) setMsg('Dốc quá, xe không leo nổi'); }
-    else { var p = { x:nx, z:nz }; if (collide(p, 0.065)) b.speed *= 0.92; b.x = p.x; b.z = p.z; }
+    // di chuyển: thử bước đầy đủ, bị chặn (nước, dốc, mép bàn) thì thử từng trục để trượt dọc; chỉ dừng khi cả hai trục đều chặn
+    var dx = Math.sin(b.yaw) * b.speed * dt, dz = Math.cos(b.yaw) * b.speed * dt, why = bikeBlock(b, b.x + dx, b.z + dz), nx = b.x + dx, nz = b.z + dz;
+    if (why){ var wx = bikeBlock(b, b.x + dx, b.z), wz = bikeBlock(b, b.x, b.z + dz);
+      if (!wx && (wz || Math.abs(dx) >= Math.abs(dz))){ nz = b.z; b.speed *= Math.exp(-2 * dt); }
+      else if (!wz){ nx = b.x; b.speed *= Math.exp(-2 * dt); }
+      else { nx = b.x; nz = b.z; b.speed *= Math.exp(-8 * dt); if (PL.msgT <= 0) setMsg(why === 'board' ? 'Hết bản đồ rồi' : (why === 'water' ? 'Xe máy không chạy được dưới nước' : 'Dốc quá, xe không leo nổi')); } }
+    var p = { x:nx, z:nz };
+    if (collideBike(p, b.yaw)){ var hn = Math.max(0, -(b.speed >= 0 ? 1 : -1) * (Math.sin(b.yaw) * colN.x + Math.cos(b.yaw) * colN.z)); b.speed *= Math.exp(-hn * hn * 10 * dt); }   // đâm thẳng mới mất tốc độ, sượt tường thì gần như không
+    b.x = p.x; b.z = p.z;
+    // kẹt: giữ ga mà gần như không nhích → sau 0,5 s nhích ra chỗ trống gần nhất
+    if (inp.f > 0.05 && Math.hypot(b.x - ox, b.z - oz) < 0.04 * dt) b.stuckT = (b.stuckT || 0) + dt; else b.stuckT = Math.max(0, (b.stuckT || 0) - dt * 2);
+    if (b.stuckT > 0.5) unstickBike(b);
     var gy2 = groundAt(b.x, b.z).y, ahead = groundAt(b.x + Math.sin(b.yaw) * 0.08, b.z + Math.cos(b.yaw) * 0.08).y, behind = groundAt(b.x - Math.sin(b.yaw) * 0.08, b.z - Math.cos(b.yaw) * 0.08).y;
     var pitch = -Math.atan2(ahead - behind, 0.16);
     PL.lean += ((-PL.steer * clamp(b.speed / 1.2, 0, 1) * 0.42) - PL.lean) * Math.min(1, dt * 5);
@@ -203,7 +241,7 @@ function updatePlayer(dt){
     if (ml > 0.05){ var want = Math.atan2(mx, mz), dy = Math.atan2(Math.sin(want - PL.yaw), Math.cos(want - PL.yaw)); PL.yaw += dy * Math.min(1, dt * 10); }
     if (PL.speed > 0.001){ var np = { x:PL.x + Math.sin(PL.yaw) * PL.speed * dt, z:PL.z + Math.cos(PL.yaw) * PL.speed * dt };
       if (!inBoard(np.x, np.z, 3)){ np.x = PL.x; np.z = PL.z; }
-      collide(np, 0.045); PL.x = np.x; PL.z = np.z; }
+      collide(np, 0.025); PL.x = np.x; PL.z = np.z; }
     var gg = groundAt(PL.x, PL.z), floorY = gg.y;
     if (!gg.deck && gg.y < -0.07){ if (PL.mode !== 'swim'){ PL.mode = 'swim'; syncPlayBtns(); } }
     else if (PL.mode === 'swim' && (gg.y > -0.05 || gg.deck)){ PL.mode = 'walk'; syncPlayBtns(); }
