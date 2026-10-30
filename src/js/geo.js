@@ -514,9 +514,10 @@ function genBuildingsOSM(G, MK, dens, extraTowers){
     if (hi - lo > 0.3 || lo < 0.3 || hi > 2.6) return false; return lo - 0.02; }
   // chiếm chỗ của đường thật (tâm đường, bán kính = nửa bề rộng): rfree trả 0 nếu đè đường, 1 nếu trống, 2 nếu trống mà gần đường (MK đỏ do khử răng cưa)
   var rocc = new Map();
-  OSM.roads.forEach(function(Rd){ var hw = Rd.w / 2 + 0.02, Q = Rd.pts; for (var i = 0; i < Q.length - 1; i++){ var dx = Q[i + 1][0] - Q[i][0], dz = Q[i + 1][1] - Q[i][1], L = Math.hypot(dx, dz), n = Math.max(1, Math.ceil(L / 0.1));
+  OSM.roads.forEach(function(Rd){ var hw = Rd.w / 2 + SIDEWALK(Rd.c) + 0.02, Q = Rd.pts; for (var i = 0; i < Q.length - 1; i++){ var dx = Q[i + 1][0] - Q[i][0], dz = Q[i + 1][1] - Q[i][1], L = Math.hypot(dx, dz), n = Math.max(1, Math.ceil(L / 0.1));
     for (var j = 0; j <= n; j++){ var x = Q[i][0] + dx * j / n, z = Q[i][1] + dz * j / n, k = key(x, z), a = rocc.get(k); if (!a){ a = []; rocc.set(k, a); } a.push([x, z, hw]); } } });
   function rfree(x, z, r){ var near = false; for (var i = -1; i <= 1; i++) for (var j = -1; j <= 1; j++){ var a = rocc.get(key(x + i * 0.5, z + j * 0.5)); if (a) for (var k = 0; k < a.length; k++){ var q = a[k], d = Math.hypot(q[0] - x, q[1] - z) - q[2] - r; if (d < 0) return 0; if (d < 0.45) near = true; } } return near ? 2 : 1; }
+  function cornersFree(x, z, hw, hd, ang){ var c = Math.cos(ang), s = Math.sin(ang); for (var k = 0; k < 4; k++){ var sx = (k & 1 ? 1 : -1) * hw, sz = (k & 2 ? 1 : -1) * hd; if (!rfree(x + sx * c - sz * s, z + sx * s + sz * c, 0)) return false; } return rfree(x, z, 0) !== 0; }
   function styleAt(x, z){ var zn = G.zoneAt(x, z); return zn >= 10 ? DIST[zn - 10] : null; }
   function addTube(x, z, y, w, d, ang, fl, fc){ var f = TUBE_F[nearestIdx(TUBE_F, fl)];
     out.tubes.push({ x:x, z:z, y:y, w:w, d:d, h:f * FLOOR, r:-ang, fc:fc, f:f, c:TUBE_C[(rb() * TUBE_C.length) | 0] });
@@ -542,7 +543,7 @@ function genBuildingsOSM(G, MK, dens, extraTowers){
         while (u < L - 0.12){ var mx = ax + fx * u + nx * s * 0.6, mz = az + fz * u + nz * s * 0.6, D = styleAt(mx, mz);
           if (!D){ u += 0.5; continue; }
           var city = D.style === 'city', lw = city ? R(0.15, 0.26) : R(0.3, 0.5), dep = city ? R(0.36, 0.6) : R(0.3, 0.45); if (u + lw > L - 0.08) break;
-          var off = Rd.w / 2 + 0.07 + dep / 2, cx = ax + fx * (u + lw / 2) + nx * s * off, cz = az + fz * (u + lw / 2) + nz * s * off, r = Math.min(lw, dep) * 0.5;
+          var off = Rd.w / 2 + SIDEWALK(Rd.c) + 0.03 + dep / 2, cx = ax + fx * (u + lw / 2) + nx * s * off, cz = az + fz * (u + lw / 2) + nz * s * off, r = Math.min(lw, dep) * 0.5;
           if (rb() < D.dens * dens * (city ? 1.15 : 0.9) && free(cx, cz, r * 0.95)){
             var y = ok(cx, cz, (lw - 0.014) / 2, dep / 2, ang, true, s);
             if (y !== false){ if (city || (D.style === 'suburb' && rb() < 0.45)) addTube(cx, cz, y, lw - 0.014, dep, ang, city ? 2 + Math.floor(Math.pow(rb(), 1.6) * 5) : 2 + Math.floor(rb() * 3), -s);
@@ -552,13 +553,15 @@ function genBuildingsOSM(G, MK, dens, extraTowers){
   // (3) lõi khối phố: chung cư thấp tầng hoặc sân vườn có cây
   DIST.forEach(function(D){ if (D.style !== 'city') return; var b = D.box, n = Math.round((b[2] - b[0]) * (b[3] - b[1]) * 0.35 * dens);
     for (var k = 0; k < n; k++){ var x = R(b[0], b[2]), z = R(b[1], b[3]); if (!inPoly(x, z, D.poly) || !free(x, z, 0.45)) continue;
-      if (rb() < 0.45){ var w = R(0.5, 0.9), d = R(0.45, 0.8), ang = R(0, Math.PI), y = ok(x, z, w / 2, d / 2, ang, true); if (y !== false){ addBlock(out.mids, MID_F, TOWER_C, x, z, y, w, d, ang, R(3, 9)); mark(x, z, Math.min(w, d) / 2); } }
+      if (rb() < 0.45){ var w = R(0.5, 0.9), d = R(0.45, 0.8), ang = R(0, Math.PI), y = ok(x, z, w / 2, d / 2, ang, true); if (y !== false && cornersFree(x, z, w / 2, d / 2, ang)){ addBlock(out.mids, MID_F, TOWER_C, x, z, y, w, d, ang, R(3, 9)); mark(x, z, Math.min(w, d) / 2); } }
       else if (!MK(x, z)) out.yard.push({ x:x, z:z }); } });
   (extraTowers || []).forEach(function(t){ var p = P(t[0], t[1]), y = G.hAt(p[0], p[1]); out.towers.push({ x:p[0], z:p[1], y:y - 0.02, w:t[2], d:t[3], h:t[4] * FLOOR, r:t[5] || 0, f:TOWER_F[nearestIdx(TOWER_F, t[4])], c:'#fbf7ef', pool:false }); });
   return out;
 }
 
 /* ---------- vegetation ---------- */
+// lề (vỉa hè) mỗi bên đường theo cấp OSM c, đơn vị bản đồ: đường lớn (c ≤ 4) vỉa hè 6,5 m (vẽ ở drawOverlays: w + 0,26), đường nhỏ 2,5 m
+function SIDEWALK(c){ return c <= 4 ? 0.13 : 0.05; }
 var LC_TREES = { 10:0.85, 20:0.4, 30:0.12, 40:0.05, 50:0.12, 60:0.02, 80:0, 90:0.08, 95:0.9 };
 function genTrees(G, MK, stepSize, dens){
   var round = [], cones = [], palms = [], rt = mulberry32(99);
@@ -571,7 +574,8 @@ function genTrees(G, MK, stepSize, dens){
     else { p = h > 1.1 ? 0.6 + 0.4 * n : 0.2 + 0.35 * n; if (sl > 1.3) p *= 0.5; if (h < 0.7) p = 0.35;
       var lc = G.lcAt ? G.lcAt(jx, jz) : 0; if (lc && LC_TREES[lc] != null) p = LC_TREES[lc] * (0.7 + 0.6 * n); }   // mật độ cây theo lớp phủ thật
     if (rt() > p * dens) continue;
-    if (MK(jx, jz)) continue;
+    if (MK(jx, jz) || MK(jx + 0.12, jz) || MK(jx - 0.12, jz) || MK(jx, jz + 0.12) || MK(jx, jz - 0.12)) continue;   // tán cây không chồm lên đường
+    var cd0 = coastX(jz) - jx; if (cd0 > 0 && cd0 < 1.3) continue;   // dải cát sát biển không trồng gì; hàng dừa dọc đường là genStreetTrees
     var big = h > 1.1 ? 1.35 : 1, s = (0.32 + rt() * 0.26) * big;
     if (h < 0.75 && zn < 10 && coastX(jz) - jx < 6) { palms.push({ x:jx, z:jz, y:h, s:0.8 + rt() * 0.5, a:rt() * 6.28, t:(rt() - 0.5) * 0.3 }); continue; }
     if (zn >= 10 && DIST[zn - 10].style !== 'city' && rt() < 0.4){ palms.push({ x:jx, z:jz, y:h, s:0.7 + rt() * 0.5, a:rt() * 6.28, t:(rt() - 0.5) * 0.3 }); continue; }
@@ -580,6 +584,24 @@ function genTrees(G, MK, stepSize, dens){
   }
   return { round:round, cones:cones, palms:palms };
 }
+
+// cây ven đường và MỘT hàng dừa sát bãi biển (phía biển của đường chạy dọc bờ). roads: [{ w, c, rail, pts:[{ x, z, fx, fz, br, cw }] }] (fx, fz là hướng đường); MK(x, z) true nếu đã là mặt đường/vỉa hè/địa danh.
+// Không cây nào đứng trên mặt đường hay vỉa hè của đường nào; dừa chỉ ở cách bờ ≥ 0,6 đơn vị (30 m, đường Trần Phú phía bắc cách bờ chỉ ~53 m) và chỉ một bên.
+function genStreetTrees(roads, G, MK){
+  var trees = [], palms = [], zN = P(12.2985, 0)[1], zS = P(12.2104, 0)[1];
+  roads.forEach(function(R){ if (R.rail) return; var c = R.c != null ? R.c : (R.cls != null ? R.cls : 2), acc = 0;
+    R.pts.forEach(function(p, i){ if (p.br || p.cw) return;
+      if (i % 3 === 0 && coastX(p.z) - p.x >= 4) [-1, 1].forEach(function(sd){   // phố sát biển (Trần Phú...) chỉ có hàng dừa phía biển
+        var x = p.x - p.fz * sd * (R.w / 2 + 0.2), z = p.z + p.fx * sd * (R.w / 2 + 0.2), y = G.hAt(x, z), zn = G.zoneAt(x, z);
+        if (roundD(x, z) < 0.15 || MK(x, z)) return;
+        if (y > 0.36 && (zn >= 10 || zn === 1) && coastX(z) - x > 2.3) trees.push({ x:x, z:z, y:y, s:0.2 + ih(i, sd + 5) * 0.06, a:0, sq:1 }); });
+      if (i) acc += Math.hypot(p.x - R.pts[i - 1].x, p.z - R.pts[i - 1].z);
+      var cd = coastX(p.z) - p.x;
+      if (c <= 4 && Math.abs(p.fz) >= 0.7 && cd > 0.5 && cd < 3.4 && p.z > zN && p.z < zS && acc >= 0.42){ acc = 0;
+        var nx = -p.fz, nz = p.fx; if (nx < 0){ nx = -nx; nz = -nz; }   // pháp tuyến hướng ra biển
+        var off = R.w / 2 + SIDEWALK(c) + 0.12, x2 = p.x + nx * off, z2 = p.z + nz * off, y2 = G.hAt(x2, z2);
+        if (coastX(z2) - x2 >= 0.6 && y2 > 0.25 && !MK(x2, z2) && roundD(x2, z2) > 0.2) palms.push({ x:x2, z:z2, y:y2, s:0.95 + ih(z2 * 10, 12) * 0.35, a:ih(z2 * 3, 7) * 6.28, t:(ih(z2 * 5, 3) - 0.5) * 0.25 }); } }); });
+  return { trees:trees, palms:palms }; }
 
 /* ---------- landmarks ---------- */
 // điểm phụ của địa danh (toạ độ OSM; null = không có trong OSM, ước lượng theo ảnh/độ cao): ga cáp treo hai đầu, vòng quay, chùa và tượng Phật Long Sơn
@@ -662,4 +684,4 @@ var ROAD_LABELS = [
   { t:'Đường Lê Hồng Phong', ll:[12.2300,109.1877] }
 ];
 
-export { BD, BR, BW, BX0, BX1, BZ0, BZ1, COAST, COAST_REAL, DIST, FALLOW, FCA, FLOOD, FLOOR, FSA, GEO_LABELS, H, HILLS, HON_DO, ISLANDS, KX, KZ, LAT0, LC_TINT, LC_TREES, LLs, LM_DEF, LM_EXTRA, LON0, MID_F, OSM, P, PADS, PAL, PCA, PK, PONDC, PONDS, PSA, RAIL, RG, RICE, RIDGES, RIVERS, ROADS, ROAD_LABELS, ROAD_W, ROOF_C, ROUNDS, TOWER_C, TOWER_F, TR, TUBE_C, TUBE_F, URB, VB, VE, VILLA_C, bboxOf, boardClamp, buildGrid, carveH, clamp, coastX, coastalRoad, districtAt, fbm, fieldS, fillPoly, genBuildings, genBuildingsOSM, genTrees, groundColor, hash, hex3, ih, inBoard, inBox, inPoly, inPonds, islandAt, islandH, islandSD, landRuns, lcAt, lerp, lineDist, mainlandH, mixc, mountains, mulberry32, nearestIdx, obbOf, osmLandS, osmRoundabouts, osmWaterS, paintGround, polyEdgeDist, prepRidges, realH, resample, ridgeH, ridgesAt, riverS, roundD, segD2, setc, smooth, strokeLine, toLL, toLocal, toWorld, trSample, vnoise, worldCtx, zHonChong, zRiverMouth };
+export { SIDEWALK, genStreetTrees, BD, BR, BW, BX0, BX1, BZ0, BZ1, COAST, COAST_REAL, DIST, FALLOW, FCA, FLOOD, FLOOR, FSA, GEO_LABELS, H, HILLS, HON_DO, ISLANDS, KX, KZ, LAT0, LC_TINT, LC_TREES, LLs, LM_DEF, LM_EXTRA, LON0, MID_F, OSM, P, PADS, PAL, PCA, PK, PONDC, PONDS, PSA, RAIL, RG, RICE, RIDGES, RIVERS, ROADS, ROAD_LABELS, ROAD_W, ROOF_C, ROUNDS, TOWER_C, TOWER_F, TR, TUBE_C, TUBE_F, URB, VB, VE, VILLA_C, bboxOf, boardClamp, buildGrid, carveH, clamp, coastX, coastalRoad, districtAt, fbm, fieldS, fillPoly, genBuildings, genBuildingsOSM, genTrees, groundColor, hash, hex3, ih, inBoard, inBox, inPoly, inPonds, islandAt, islandH, islandSD, landRuns, lcAt, lerp, lineDist, mainlandH, mixc, mountains, mulberry32, nearestIdx, obbOf, osmLandS, osmRoundabouts, osmWaterS, paintGround, polyEdgeDist, prepRidges, realH, resample, ridgeH, ridgesAt, riverS, roundD, segD2, setc, smooth, strokeLine, toLL, toLocal, toWorld, trSample, vnoise, worldCtx, zHonChong, zRiverMouth };

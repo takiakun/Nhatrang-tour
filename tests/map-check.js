@@ -51,6 +51,26 @@ for (let j = 2; j < W.h - 2; j += 3) for (let i = 2; i < W.w - 2; i += 3){ const
   else if (s > 0.5 && s < 2){ nL++; if (H(x, z) < WET){ wetL++; if (wErr.length < 200) wErr.push('đất ven nước thành nước tại ' + ll(x, z)); } } }
 const pw = dryW / Math.max(1, nW), pl = wetL / Math.max(1, nL);
 report('Mặt nước khớp OSM (sai ' + (pw * 100).toFixed(1) + '% ô nước, ' + (pl * 100).toFixed(1) + '% ô đất ven sông)', pw > 0.03 || pl > 0.03 ? wErr : [], nW + nL, 'ô mẫu');
+// 6a. nhà và cây không đè đường (dựng lại nhà, cây bằng chính hàm của trang, mặt nạ đường xấp xỉ từ OSM)
+{ const { buildGrid, genBuildings, genTrees, genStreetTrees, resample, SIDEWALK } = require('../src/js/geo.js'), key = (x, z) => (Math.floor(x * 2) + 2000) * 4000 + Math.floor(z * 2) + 2000;
+  const addSeg = (map, a, b, r) => { const L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(L / 0.1)); for (let j = 0; j <= n; j++){ const x = a[0] + (b[0] - a[0]) * j / n, z = a[1] + (b[1] - a[1]) * j / n, k = key(x, z); (map.get(k) || map.set(k, []).get(k)).push([x, z, r]); } };
+  const roads = OSM.roads.filter(R => !R.round), maskM = new Map(), carM = new Map(), swM = new Map();
+  roads.forEach(R => { for (let i = 0; i < R.pts.length - 1; i++){ addSeg(maskM, R.pts[i], R.pts[i + 1], R.w / 2 + (R.c <= 4 ? 0.17 : 0.05)); addSeg(carM, R.pts[i], R.pts[i + 1], R.w / 2); addSeg(swM, R.pts[i], R.pts[i + 1], R.w / 2 + SIDEWALK(R.c)); } });
+  const near = (m, x, z) => { for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++){ const a = m.get(key(x + i * 0.5, z + j * 0.5)); if (a) for (const q of a) if (Math.hypot(q[0] - x, q[1] - z) < q[2]) return true; } return false; };
+  const MK = (x, z) => !inBoard(x, z, 0.5) || near(maskM, x, z), Gd = buildGrid(1.0), B = genBuildings(Gd, MK, 1, []);
+  const p8 = b => { const c = Math.cos(b.r), sn = Math.sin(b.r), hw = b.w / 2, hd = b.d / 2; return [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, -1], [0, 1], [-1, 0], [1, 0]].map(([u, v]) => [b.x + u * hw * c + v * hd * sn, b.z - u * hw * sn + v * hd * c]); };
+  let nb = 0, onCar = 0, onSw = 0; ['tubes', 'towers', 'mids', 'villas'].forEach(k => B[k].forEach(b => { nb++; const q = p8(b); if (q.some(p => near(carM, p[0], p[1]))) onCar++; if (q.some(p => near(swM, p[0], p[1]))) onSw++; }));
+  const T = genTrees(Gd, MK, 1.4, 1), forest = T.round.concat(T.cones, T.palms), badF = forest.filter(t => near(swM, t.x, t.z) || (coastX(t.z) - t.x > 0 && coastX(t.z) - t.x < 1.0));
+  const rl = roads.filter(R => R.c <= 4).map(R => { const L = R.pts.reduce((a, p, i) => i ? a + Math.hypot(p[0] - R.pts[i - 1][0], p[1] - R.pts[i - 1][1]) : 0, 0), sm = resample(R.pts, L / Math.max(1, Math.ceil(L / 0.5)) * 0.9999);
+    return { w:R.w, c:R.c, rail:false, pts:sm.map((p, i) => { const a = sm[Math.max(0, i - 1)], b = sm[Math.min(sm.length - 1, i + 1)], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return { x:p[0], z:p[1], fx:(b[0] - a[0]) / l, fz:(b[1] - a[1]) / l, br:false, cw:false }; }) }; });
+  const S = genStreetTrees(rl, Gd, MK), badS = S.trees.filter(t => near(swM, t.x, t.z)).concat(S.palms.filter(t => near(swM, t.x, t.z) || coastX(t.z) - t.x < 0.6));
+  const errs = [];
+  if (onCar / nb > 0.001) errs.push((onCar) + '/' + nb + ' nhà đè lên lòng đường (cho phép 0,1%: chân đế OSM thật có thể chạm)');
+  if (onSw / nb > 0.02) errs.push((onSw) + '/' + nb + ' nhà chạm vỉa hè (cho phép 2%)');
+  if (badF.length) errs.push(badF.length + ' cây rừng/vườn trên vỉa hè hoặc trên cát sát bờ (vd ' + ll(badF[0].x, badF[0].z) + ')');
+  if (badS.length) errs.push(badS.length + ' cây ven đường/dừa trên vỉa hè hoặc sát bãi cát (vd ' + ll(badS[0].x, badS[0].z) + ')');
+  if (S.palms.length < 100) errs.push('hàng dừa dọc bãi biển chỉ có ' + S.palms.length + ' cây (cần ≥ 100)');
+  report('Nhà, cây không đè đường (' + (onSw / nb * 100).toFixed(1) + '% nhà chạm vỉa hè, ' + S.palms.length + ' dừa ven bãi)', errs, nb + forest.length + S.trees.length + S.palms.length, 'nhà, cây'); }
 // 6. vị trí địa danh, bờ biển
 const cp = spawnSync(process.execPath, [path.join(ROOT, 'tools/check-positions.js')], { encoding:'utf8' }), posBad = cp.status !== 0;
 report('Vị trí địa danh, bờ biển (tools/check-positions.js)', posBad ? cp.stdout.split('\n').filter(l => /✗|⚠/.test(l)) : [], 0, '');

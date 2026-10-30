@@ -18,6 +18,8 @@ const VIEWS = {
   honchong:  { lm:'hon-chong', r:25, phi:1.05, th:1.3, tod:0, wx:'sun' },
   sea:       { ll:[12.2250, 109.2150], r:14, phi:1.2, th:1.6, tod:0, wx:'sun' },
   seawide:   { ll:[12.2200, 109.2300], r:120, phi:1.0, th:1.2, tod:0, wx:'sun' },
+  beachtop:  { ll:[12.2330, 109.1975], r:22, phi:0.05, th:0, tod:0, wx:'sun' },
+  streettop: { ll:[12.2475, 109.1915], r:16, phi:0.05, th:0, tod:0, wx:'sun' },
   seanear:   { ll:[12.2250, 109.2150], r:6, phi:1.3, th:1.6, tod:0, wx:'sun' },
   seadusk:   { ll:[12.2250, 109.2150], r:14, phi:1.25, th:3.9, tod:1, wx:'sun' },
   seanight:  { ll:[12.2250, 109.2150], r:14, phi:1.25, th:1.6, tod:2, wx:'sun' },

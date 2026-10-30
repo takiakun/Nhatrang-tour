@@ -407,7 +407,7 @@ async function build(){
     home:function(){ this.jump(homeTarget, homeDist, HOME_PHI, HOME_TH); },
     setTod:function(n){ ST.todUser = true; ST.WX.real = false; ST.todTarget = ST.tod = n; applyTod(n); syncTimeBtn(); },
     setWx:function(m){ ST.WX.mode = m; syncWxBtn(); updateWeather(2, 0, 100); },
-    GOV:ST.GOV, setWind:setWind, waves:{ heightAt:waveHeightAt, normalAt:waveNormalAt, windState:windState, depthFade:depthFade }, PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return ST.keys; }, G:ST.G, B:B, T:T, ROADS_S:ST.ROADS_S, RAIL_S:ST.RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:ST.controls, setCam:setCam, audio:AU, gov:ST.GOV, lite:LITE, wx:ST.WX, sunPos:sunPos, lmp:LMP, post:POST, scene:scene, OSM:OSM, inBoard:inBoard };
+    GOV:ST.GOV, streetPalms:function(){ return ST.streetPalms; }, setWind:setWind, waves:{ heightAt:waveHeightAt, normalAt:waveNormalAt, windState:windState, depthFade:depthFade }, PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return ST.keys; }, G:ST.G, B:B, T:T, ROADS_S:ST.ROADS_S, RAIL_S:ST.RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:ST.controls, setCam:setCam, audio:AU, gov:ST.GOV, lite:LITE, wx:ST.WX, sunPos:sunPos, lmp:LMP, post:POST, scene:scene, OSM:OSM, inBoard:inBoard };
   ready = true; loader.hidden = true; requestAnimationFrame(frame);
 }
 build().catch(function(e){ console.error(e); fail('Không dựng được bản đồ: ' + (e && e.message ? e.message : e)); });
