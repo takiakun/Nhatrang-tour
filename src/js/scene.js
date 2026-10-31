@@ -39,7 +39,7 @@ var hemi = new THREE.HemisphereLight(0xe3f6ff, 0x93a46a, 0.72 * LIGHT_K); scene.
 var sun = new THREE.DirectionalLight(0xfff1d6, 1.35 * LIGHT_K);
 sun.castShadow = true;
 sun.shadow.mapSize.set(LITE || SMALL ? 1024 : 2048, LITE || SMALL ? 1024 : 2048);
-sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.035;
+sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.035; sun.shadow.radius = 1.6;   // bóng mềm hơn (PCF lấy mẫu rộng hơn)
 var SC = sun.shadow.camera; SC.near = 1; SC.far = 900;
 scene.add(sun); scene.add(sun.target);
 
@@ -128,14 +128,20 @@ function modelGeo(id){ if (modelCache[id]) return modelCache[id];
 // r186: vColor luôn là vec4 nên gán vec4(rgb, 1)
 function kitMat(){ var m = glowMat('#ffffff', '#ffd38a', 0, 0.85); m.vertexColors = true; m.roughness = 0.78;
   // Ban đêm: ô cửa sổ sáng rải theo thủ tục trên tường phẳng, thay cho phát sáng cam đều cả khối
-  m.onBeforeCompile = function(sh){ sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aMask;\nattribute vec3 aRoof;\nvarying vec3 vWP;\nvarying vec3 vWN;\nvarying vec2 vWM;')
+  m.onBeforeCompile = function(sh){ sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aMask;\nattribute vec3 aRoof;\nvarying vec3 vWP;\nvarying vec3 vWN;\nvarying vec2 vWM;\nvarying float vBaseH;')
     .replace('#include <color_vertex>', `vColor = vec4(color * mix(instanceColor, aRoof, aMask), 1.0);
       vec4 wp_ = vec4(position, 1.0); vec3 wn_ = normal;
       #ifdef USE_INSTANCING
         wp_ = instanceMatrix * wp_; wn_ = mat3(instanceMatrix) * wn_;
       #endif
-      vWP = (modelMatrix * wp_).xyz; vWN = normalize(mat3(modelMatrix) * wn_); vWM = vec2(dot(color, vec3(0.299, 0.587, 0.114)), aMask);`);
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP;\nvarying vec3 vWN;\nvarying vec2 vWM;')
+      vWP = (modelMatrix * wp_).xyz; vWN = normalize(mat3(modelMatrix) * wn_); vWM = vec2(dot(color, vec3(0.299, 0.587, 0.114)), aMask);
+      float by_ = 0.0;
+      #ifdef USE_INSTANCING
+        by_ = (modelMatrix * vec4(instanceMatrix[3].xyz, 1.0)).y;
+      #endif
+      vBaseH = (vWP.y - by_) / ${FLOOR.toFixed(4)};`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP;\nvarying vec3 vWN;\nvarying vec2 vWM;\nvarying float vBaseH;')
+    .replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb *= mix(0.78, 1.0, smoothstep(0.0, 1.0, vBaseH));')
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       {
         // ô cửa sổ sáng rải trên tường phẳng (màu đỉnh sáng, không phải mái, gờ, khung tối): lưới theo tầng × bề ngang, ~58% ô sáng
@@ -146,7 +152,7 @@ function kitMat(){ var m = glowMat('#ffffff', '#ffd38a', 0, 0.85); m.vertexColor
         float win_ = step(0.26, f_.x) * step(f_.x, 0.74) * step(0.3, f_.y) * step(f_.y, 0.78) * step(0.42, h_);
         totalEmissiveRadiance *= wall_ * win_;
       }`); };
-  m.customProgramCacheKey = function(){ return 'kit2'; };
+  m.customProgramCacheKey = function(){ return 'kit3'; };
   return m; }
 var KIT = null; function kit(){ return KIT || (KIT = kitMat()); }
 // Kích thước (rộng, cao, dài) để mô hình dài đúng len theo trục z mà vẫn giữ tỷ lệ gốc
@@ -324,7 +330,19 @@ function boxUV(uRep, vRep, blankSides){ var g = new THREE.BoxGeometry(1, 1, 1); 
   for (var f = 0; f < 6; f++) for (var k = 0; k < 4; k++){ var i = f * 4 + k;
     if (f === 2 || f === 3 || (blankSides && (f === 0 || f === 1))) uv.setXY(i, 0.01, 0.995); else uv.setXY(i, uv.getX(i) * uRep, uv.getY(i) * vRep); }
   uv.needsUpdate = true; return g; }
-function bmat(t, peak){ var m = new THREE.MeshStandardMaterial({ color:'#ffffff', map:t.map, emissiveMap:t.emis, emissive:'#ffffff', emissiveIntensity:0, roughness:0.75 }); glowMats.push({ m:m, base:0, peak:peak }); return wetReg(m); }
+// Tối dần về chân tường: phần tầng trệt (từ chân nhà lên một tầng) tối tới ~22% như bóng đổ ở chân, nhà có chiều sâu. Độ cao tính từ gốc của instance (instanceMatrix[3].y là chân nhà).
+function baseShade(m, key){ var prev = m.onBeforeCompile;
+  m.onBeforeCompile = function(sh, r){ if (prev) prev.call(this, sh, r);
+    if (sh.vertexShader.indexOf('vBaseH') < 0){
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vBaseH;').replace('#include <begin_vertex>', `#include <begin_vertex>
+        { float by_ = 0.0; vec4 pw_ = modelMatrix * vec4(position, 1.0);
+        #ifdef USE_INSTANCING
+          pw_ = modelMatrix * (instanceMatrix * vec4(position, 1.0)); by_ = (modelMatrix * vec4(instanceMatrix[3].xyz, 1.0)).y;
+        #endif
+        vBaseH = (pw_.y - by_) / ${FLOOR.toFixed(4)}; }`);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vBaseH;').replace('#include <map_fragment>', '#include <map_fragment>\n diffuseColor.rgb *= mix(0.78, 1.0, smoothstep(0.0, 1.0, vBaseH));'); } };
+  m.customProgramCacheKey = function(){ return key; }; return m; }
+function bmat(t, peak){ var m = new THREE.MeshStandardMaterial({ color:'#ffffff', map:t.map, emissiveMap:t.emis, emissive:'#ffffff', emissiveIntensity:0, roughness:0.75 }); glowMats.push({ m:m, base:0, peak:peak }); baseShade(m, 'bmat-base'); return wetReg(m); }
 
 /* ======================= BUILD ======================= */
 /* trong ST: G, groundTex, terrain, water, MK, ring */ ST.ROADS_S = []; ST.RAIL_S = null; var KEEP = []; var LM = []; var LMI = {}; var pickGroups = []; var anim = { boats:[], movers:[], gondolas:[], birds:null, clouds:[], wheel:null, train:null, parasail:null, vehicles:null };
@@ -798,7 +816,7 @@ function buildSky(){
 /* ======================= TIME OF DAY ======================= */
 function C(h){ return new THREE.Color(h); }
 var TOD = [
-  { top:'#4fb6e6', mid:'#9fdcf0', bot:'#e6f8f3', fog:'#d4eff2', hs:'#e3f6ff', hg:'#93a46a', hi:0.72, sun:'#fff1d6', si:1.35, sp:[0.55, 0.78, 0.3], sh:'#3fc8cf', dp:'#0f5f8c', foam:'#ffffff', sky:'#bfe6f5', cloud:'#ffffff', exp:1.05, lamp:0, glow:0 },
+  { top:'#4fb6e6', mid:'#9fdcf0', bot:'#e6f8f3', fog:'#d4eff2', hs:'#b4dcff', hg:'#b3a67a', hi:0.55, sun:'#fff1d6', si:1.5, sp:[0.55, 0.78, 0.3], sh:'#3fc8cf', dp:'#0f5f8c', foam:'#ffffff', sky:'#bfe6f5', cloud:'#ffffff', exp:0.95, lamp:0, glow:0 },
   { top:'#27306a', mid:'#9b5d8f', bot:'#ffad74', fog:'#d9958a', hs:'#9a8fe0', hg:'#3a3550', hi:0.58, sun:'#ffad6b', si:1.1, sp:[-0.8, 0.32, -0.2], sh:'#4aa6b8', dp:'#1b3b6a', foam:'#ffe2cf', sky:'#f3a383', cloud:'#ffcdbd', exp:1.05, lamp:0.75, glow:0.6 },
   { top:'#070d22', mid:'#132042', bot:'#2a3762', fog:'#141c38', hs:'#5d74b8', hg:'#1a2036', hi:0.6, sun:'#9fb4ff', si:0.32, sp:[0.3, 0.85, -0.45], sh:'#1d4a66', dp:'#071b33', foam:'#7f93b5', sky:'#22305a', cloud:'#3a4670', exp:1.15, lamp:1, glow:1 }
 ].map(function(t){ var o = {}; for (var k in t) o[k] = typeof t[k] === 'string' ? C(t[k]) : t[k]; o.sp = new THREE.Vector3(t.sp[0], t.sp[1], t.sp[2]).normalize(); return o; });

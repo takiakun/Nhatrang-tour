@@ -46,5 +46,8 @@ export function rainCount(n, rain){ return rain < 0.02 ? 0 : Math.round(n * (0.1
 // cỡ hộp mưa (đơn vị) theo khoảng cách camera tới tâm nhìn: sát đất thì hộp ~20 m (0,4), xa thì to dần để vệt mưa vẫn thấy trên màn hình
 export function rainBoxScale(camDist){ return clamp(camDist * 0.8, 0.4, 40); }
 // sương khi mưa: cận/xa của Fog (đơn vị) theo cường độ rain và khoảng cách camera dist, nội suy từ giá trị gốc base = { near, far }
-export function rainFog(base, rain, dist){ const far = Math.max(60, dist * 1.6 + 20), near = Math.max(2, dist * 0.4), t = clamp(rain, 0, 1);
-  return { near: base.near + (Math.min(near, base.near) - base.near) * t, far: base.far + (Math.min(far, base.far) - base.far) * t }; }
+// Trời quang cũng có sương theo khoảng cách camera (phối cảnh khí quyển: đồi núi, đảo xa phai xanh khi đi bộ, lái xe): camera sát đất thì cận 30, xa 400 đơn vị; từ ~250 đơn vị
+// (toàn cảnh) trở lên giữ sương gốc. Mưa thu hẹp tiếp từ mức đó.
+export function rainFog(base, rain, dist){ const w = 1 - clamp((dist - 60) / 190, 0, 1) ** 2 * (3 - 2 * clamp((dist - 60) / 190, 0, 1)), cn = Math.min(base.near, Math.max(30, dist * 0.6)), cf = Math.min(base.far, Math.max(400, dist * 2.4)),
+    bn = base.near + (cn - base.near) * w, bf = base.far + (cf - base.far) * w, far = Math.max(60, dist * 1.6 + 20), near = Math.max(2, dist * 0.4), t = clamp(rain, 0, 1);
+  return { near: bn + (Math.min(near, bn) - bn) * t, far: bf + (Math.min(far, bf) - bf) * t }; }

@@ -44,6 +44,9 @@ ok(s0 === 0 && s28 > 8 && s28 < 25 && s60 > s28 && s60 < 55 && s60g > s60, 'góc
 ok(rainCount(1400, 0) === 0 && rainCount(1400, 0.01) === 0 && rainCount(1400, 0.05) > 150 && rainCount(1400, 0.8) === 1400 && rainCount(500, 0.4) > 250 && rainCount(500, 0.4) < 500, 'số vệt mưa tăng theo cường độ (0 → 0, phùn → ~12%, ≥ 0,8 → đủ)');
 ok(rainBoxScale(0.3) === 0.4 && rainBoxScale(10) > 4 && rainBoxScale(1000) === 40, 'hộp mưa: 20 m khi sát đất, to dần theo khoảng cách camera, trần 40');
 const fb = { near: 190, far: 640 }, f0 = rainFog(fb, 0, 200), f1 = rainFog(fb, 1, 200), fl = rainFog({ near: 400, far: 1300 }, 1, 0.5);
-ok(f0.near === 190 && f0.far === 640 && f1.far < f0.far && f1.near < f0.near && f1.far > f1.near, 'sương: không mưa giữ nguyên, mưa to thu hẹp (' + f1.near + '–' + f1.far + ')');
+const fg = rainFog({ near: 400, far: 1300 }, 0, 1), ft = rainFog({ near: 380, far: 1280 }, 0, 400);
+ok(f0.near <= 190 && f0.near >= 100 && f0.far <= 640 && f0.far >= 450 && f1.far < f0.far && f1.near < f0.near && f1.far > f1.near, 'sương: không mưa xấp xỉ gốc, mưa to thu hẹp (' + f0.near.toFixed(0) + '–' + f0.far.toFixed(0) + ' → ' + f1.near.toFixed(0) + '–' + f1.far.toFixed(0) + ')');
+ok(Math.abs(fg.near - 30) < 0.5 && Math.abs(fg.far - 400) < 0.5, 'sương trời quang sát đất: cận 30, xa 400 (phối cảnh khí quyển) (' + fg.near.toFixed(0) + '–' + fg.far.toFixed(0) + ')');
+ok(ft.near === 380 && ft.far === 1280, 'toàn cảnh (≥ 250 đơn vị) giữ sương gốc'); 
 ok(fl.far >= 60 && fl.far <= 61 && fl.near >= 2, 'sát đất khi mưa to: tầm nhìn ~60 đơn vị (3 km), cận 2');
 console.log(bad ? '[weather] ' + bad + ' mục sai' : '[weather] Mưa, ướt, sét đúng'); process.exit(bad ? 1 : 0);

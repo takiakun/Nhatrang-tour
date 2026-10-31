@@ -114,8 +114,12 @@ export function buildOcean(){
         'vec3 wn = normalize(vec3(-gr.x - dn.x, max(0.2, 1.0 - comp), -gr.y - dn.y));',
         'float noiseH = n1.b * 0.6 + n2.b * 0.4;',
         // màu nước: nông → sâu, đỉnh sóng sáng hơn (ánh xuyên nước), hõm sóng tối hơn
-        'diffuseColor.rgb = mix(uShallow, uDeep, smoothstep(0.1, 3.4, dep));',
+        // ba sắc: sát bờ sáng ngả ngọc (thấy cát đáy), nông, sâu
+        'vec3 shoreC = uShallow * 1.2 + vec3(0.02, 0.05, 0.04);',
+        'diffuseColor.rgb = mix(mix(shoreC, uShallow, smoothstep(0.0, 0.55, dep)), uDeep, smoothstep(0.35, 3.2, dep));',
         'diffuseColor.a = mix(0.32, 0.94, smoothstep(0.0, 2.4, dep));',
+        // caustics rẻ: hai lớp nhiễu đã lấy mẫu giao nhau thành vân sáng nhấp nhô ở nước cạn (nhân theo độ sáng nước nên ban đêm tự tối)
+        'float cau = 1.0 - smoothstep(0.0, 0.06, abs(n1.b - n2.b)); diffuseColor.rgb += diffuseColor.rgb * cau * 0.3 * (1.0 - smoothstep(0.1, 1.3, dep)) * step(0.0, dep);',
         'float crestK = clamp(hgt * 6.0, -1.0, 1.0); diffuseColor.rgb = mix(diffuseColor.rgb, uShallow * 1.15, clamp(crestK, 0.0, 1.0) * 0.38 * smoothstep(0.5, 2.0, dep)); diffuseColor.rgb *= 1.0 + crestK * 0.06;',
         // bọt: mép bờ chạy theo pha sóng + mũ bạc ở đỉnh dốc
         'float fw = 0.32 + 0.12 * sin(uT * 1.2 + dot(vBase, uWind) * 1.7 + vBase.x * 0.5);',
@@ -134,6 +138,7 @@ export function buildOcean(){
         // Fresnel: phản chiếu trời
         'vec3 rf = reflect(-vd, wn); float fres = pow(1.0 - clamp(dot(wn, vd), 0.0, 1.0), 5.0);',
         'vec3 skyC = mix(uSkyHor, uSkyTop, smoothstep(0.0, 0.7, rf.y)); skyC = mix(skyC, uSky, 0.35);',
+        'skyC += uSunCol * pow(max(dot(rf, uSunDir), 0.0), 6.0) * 0.2;   // quầng sáng quanh mặt trời trong phản chiếu trời',
         // gió mạnh, mưa: nước xám, đục hơn, phản chiếu trời giảm
         'vec3 greyW = vec3(dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11))) * vec3(0.92, 1.0, 1.02) + vec3(0.02, 0.03, 0.035);',
         'diffuseColor.rgb = mix(diffuseColor.rgb, greyW, uGrey * 0.75);',
