@@ -32,6 +32,17 @@ const { chromium } = require('playwright'); const { mount, DIST_TEST } = require
       return { vis:!c.hidden && b.width > 0, pe:cs.pointerEvents, hit:hit && hit.tagName, over, inView:b.right <= innerWidth && b.bottom <= innerHeight, txt:c.textContent.replace(/\s+/g, ' ').trim() }; });
     const okWc = wc.vis && wc.pe === 'none' && wc.hit === 'CANVAS' && !wc.over && wc.inView && /km\/h/.test(wc.txt) && /cấp/.test(wc.txt);
     console.log((okWc ? 'OK  ' : 'FAIL') + ' chip gió ' + vp.name, JSON.stringify(wc)); if (!okWc) fail++;
+    // bấm THẬT nút thời tiết trong menu (một chú thích từng nuốt mất dòng gắn sự kiện, trong khi test chỉ dùng hook): thật → nắng → mưa → thật; không lưu chế độ mô phỏng
+    await page.tap('#btnMenu'); const wxSeq = [];
+    for (let i = 0; i < 4; i++){ wxSeq.push([await page.textContent('#btnWxText'), (await page.textContent('#wx')).trim()]); if (i < 3){ await page.tap('#btnWx'); await page.waitForTimeout(50); } }
+    await page.waitForFunction(() => document.getElementById('btnWxText').textContent === 'Thời tiết thật', null, { timeout:3000 });
+    await page.tap('#btnWx'); await page.tap('#btnWx');   // về chế độ mưa để kiểm chip gió ghi "mô phỏng"
+    const rainSrc = await page.waitForFunction(() => { const s = document.getElementById('windSrc'); return s && s.textContent === 'mô phỏng'; }, null, { timeout:5000 }).then(() => true, () => false);
+    const saved = await page.evaluate(() => { try { return localStorage.getItem('nt-wx'); } catch (e){ return null; } });
+    await page.tap('#btnWx'); await page.tap('#btnMenu');   // về thật, đóng menu
+    const okWx = wxSeq[0][0] === 'Thời tiết thật' && wxSeq[1][0] === 'Trời nắng' && wxSeq[2][0] === 'Trời mưa' && wxSeq[3][0] === 'Thời tiết thật'
+      && /ước lượng/.test(wxSeq[0][1]) && wxSeq[1][1] === 'Mô phỏng: trời nắng' && wxSeq[2][1] === 'Mô phỏng: trời mưa' && /ước lượng/.test(wxSeq[3][1]) && rainSrc && saved === null;
+    console.log((okWx ? 'OK  ' : 'FAIL') + ' nút thời tiết ' + vp.name, JSON.stringify({ wxSeq, rainSrc, saved })); if (!okWx) fail++;
     // vào chế độ lái: giao diện gọn, mini map có hình, ghi nguồn còn truy cập được, vùng trống vẫn chạm xuyên
     await page.tap('#btnPlay'); await page.waitForTimeout(1900);
     const p = await page.evaluate(() => {
