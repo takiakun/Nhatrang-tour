@@ -24,7 +24,7 @@ var homeTarget = new THREE.Vector3(-14, 0, -4), homeDist = 400, HOME_PHI = 0.86,
 function computeHome(){ var asp = innerWidth / innerHeight, t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
   homeDist = Math.max(BW * 0.98 / (2 * t * asp), BD * 0.8 / (2 * t)); ST.controls.maxDistance = homeDist * 1.35; scene.fog.near = homeDist * 0.95; scene.fog.far = homeDist * 3.2; }
 function setCam(target, r, phi, th){ ST.controls.target.copy(target); camera.position.set(target.x + r * Math.sin(phi) * Math.sin(th), target.y + r * Math.cos(phi), target.z + r * Math.sin(phi) * Math.cos(th)); camera.lookAt(target); }
-addEventListener('resize', function(){ renderer.setSize(innerWidth, innerHeight); resizePost(); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); computeHome(); labels.forEach(function(l){ l.w = 0; }); });
+addEventListener('resize', function(){ renderer.setSize(innerWidth, innerHeight); resizePost(); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); computeHome(); labels.forEach(function(l){ l.w = 0; }); if (PLAY.on) playLook(true); });
 
 var ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 function setNdc(e){ var r = renderer.domElement.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, camera); }
@@ -43,7 +43,7 @@ stage.addEventListener('wheel', function(e){ if (!ready) return; e.preventDefaul
   ST.controls.target.sub(hit).multiplyScalar(k).add(hit); camera.position.sub(hit).multiplyScalar(k).add(hit);
   if (ST.controls.autoRotate) setSpin(false); hideHint(); }, { capture:true, passive:false });
 
-var camDes = new THREE.Vector3(), camShort = new THREE.Vector3(), camShifted = false;
+var camDes = new THREE.Vector3(), camShifted = false, camK = 1;   // camK: mức rút camera do nhà chắn (1 = không rút), đổi mượt
 /* ---------- camera fly ---------- */
 var tween = null;
 function sphOf(){ var o = camera.position.clone().sub(ST.controls.target), r = o.length(); return { r:r, phi:Math.acos(clamp(o.y / r, -1, 1)), th:Math.atan2(o.x, o.z) }; }
@@ -53,7 +53,7 @@ function flyTo(target, r, phi, th, dur){ var s = sphOf(); if (th == null) th = s
 function stepTween(now){ var u = Math.min(1, (now - tween.t0) / tween.dur), e = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
   var tg = new THREE.Vector3().lerpVectors(tween.ft, tween.tt, e), r = Math.exp(lerp(Math.log(tween.fr), Math.log(tween.tr), e)), lift = Math.sin(Math.PI * e) * Math.min(tween.fr, tween.tr) * 0.25;
   setCam(tg, r + lift, lerp(tween.fp, tween.tp, e), tween.fth + tween.dth * e);
-  if (u >= 1){ tween = null; ST.controls.enableDamping = true; ST.controls.enabled = true; } }
+  if (u >= 1){ tween = null; ST.controls.enableDamping = !PLAY.on; ST.controls.enabled = true; } }
 function constrain(){ var tg = ST.controls.target, c = boardClamp(clamp(tg.x, BX0 + 8, BX1 - 8), clamp(tg.z, BZ0 + 8, BZ1 - 8)), dx = c[0] - tg.x, dz = c[1] - tg.z;
   if (dx || dz){ tg.x += dx; tg.z += dz; camera.position.x += dx; camera.position.z += dz; }
   if (!tween && !PLAY.on){ var dy = (Math.max(ST.G.hAt(tg.x, tg.z), 0) * 0.85) - tg.y; if (Math.abs(dy) > 0.002){ tg.y += dy * 0.12; camera.position.y += dy * 0.12; } }
@@ -231,7 +231,8 @@ function setupUI(){
 /* ---------- play mode ---------- */
 var saved = null;
 function enterPlay(){ if (PLAY.on || !PL) return; PLAY.on = true; PLAY.lastDrag = 0; document.body.classList.add('playing'); closeCard(); setSpin(false); hideHint();
-  saved = { min:ST.controls.minDistance, max:ST.controls.maxDistance, pol:ST.controls.maxPolarAngle };
+  saved = { min:ST.controls.minDistance, max:ST.controls.maxDistance, pol:ST.controls.maxPolarAngle, two:ST.controls.touches.TWO, rot:ST.controls.rotateSpeed };
+  PLAY.az0 = ST.controls.getAzimuthalAngle(); playLook(true);
   ST.controls.enablePan = false; ST.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE; ST.controls.touches.ONE = THREE.TOUCH.ROTATE; ST.controls.minDistance = 0.35 * KS; ST.controls.maxDistance = 9; ST.controls.maxPolarAngle = 1.45;
   document.getElementById('btnPlay').setAttribute('aria-pressed', 'true'); document.getElementById('playHud').hidden = false; document.querySelector('#btnPlay span').textContent = '✕ Thoát'; showMinimap(); syncPlayBtns(); DP.valid = false;
   flyTo(new THREE.Vector3(PL.x, PL.y + 0.09 * KS, PL.z), CAMLV[camLevel][0], CAMLV[camLevel][1], PL.yaw + Math.PI, 1600); }
@@ -242,9 +243,11 @@ function cycleCam(){ if (!PLAY.on || tween || !PL) return; camLevel = (camLevel 
 function syncCamBtn(){ var b = document.getElementById('btnCam'); if (b) b.textContent = 'Góc nhìn: ' + CAMLV[camLevel][2]; }
 function setBoost(on){ ST.boostBtn = on; var bb = document.getElementById('btnBoost'); if (bb){ bb.setAttribute('aria-pressed', String(on)); bb.textContent = on ? 'Đang tăng ga' : 'Tăng ga'; } }
 function exitPlay(){ if (!PLAY.on) return; PLAY.on = false; setBoost(false); document.body.classList.remove('playing'); ST.keys = {}; joy.on = false; joy.x = joy.y = 0;
-  ST.controls.enablePan = true; ST.controls.mouseButtons.LEFT = THREE.MOUSE.PAN; ST.controls.touches.ONE = THREE.TOUCH.PAN; ST.controls.minDistance = saved.min; ST.controls.maxDistance = saved.max; ST.controls.maxPolarAngle = saved.pol;
+  ST.controls.enablePan = true; ST.controls.mouseButtons.LEFT = THREE.MOUSE.PAN; ST.controls.touches.ONE = THREE.TOUCH.PAN; ST.controls.touches.TWO = saved.two; ST.controls.rotateSpeed = saved.rot; ST.controls.enableDamping = true; ST.controls.minDistance = saved.min; ST.controls.maxDistance = saved.max; ST.controls.maxPolarAngle = saved.pol;
   document.getElementById('btnPlay').setAttribute('aria-pressed', 'false'); document.getElementById('playHud').hidden = true; document.querySelector('#btnPlay span').textContent = 'Lái xe';
   var s2 = sphOf(); flyTo(new THREE.Vector3(PL.x, 0, PL.z), 26, 0.9, s2.th, 1300); }
+// khi lái: một ngón xoay với độ nhạy như nhau ở màn dọc và ngang (OrbitControls chia theo chiều cao màn hình), hai ngón chỉ zoom, không quán tính
+function playLook(on){ var c = ST.controls; if (on){ c.touches.TWO = THREE.TOUCH.DOLLY; c.enableDamping = false; } c.rotateSpeed = on ? Math.max(0.3, (renderer.domElement.clientHeight || innerHeight) / 1200) : c.rotateSpeed; }
 function setupPlay(){
   var bp = document.getElementById('btnPlay'); bp.addEventListener('click', function(){ if (PLAY.on) exitPlay(); else enterPlay(); });
   var MOVE = { KeyW:1, KeyA:1, KeyS:1, KeyD:1, ArrowUp:1, ArrowDown:1, ArrowLeft:1, ArrowRight:1, ShiftLeft:1, ShiftRight:1, Space:1 };
@@ -266,9 +269,11 @@ function setupPlay(){
   var jz = document.getElementById('joy'), knob = document.getElementById('joyKnob'), jid = null;
   function jset(e){ var r = jz.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, dx = e.clientX - cx, dy = e.clientY - cy, R2 = r.width / 2, l = Math.hypot(dx, dy); if (l > R2){ dx *= R2 / l; dy *= R2 / l; }
     joy.x = dx / R2; joy.y = -dy / R2; knob.style.transform = 'translate(' + dx.toFixed(0) + 'px,' + dy.toFixed(0) + 'px)'; }
-  jz.addEventListener('pointerdown', function(e){ jid = e.pointerId; jz.setPointerCapture(jid); joy.on = true; jset(e); e.preventDefault(); });
+  jz.addEventListener('pointerdown', function(e){ if (jid !== null) return; jid = e.pointerId; jz.setPointerCapture(jid); joy.on = true; jset(e); e.preventDefault(); });
   jz.addEventListener('pointermove', function(e){ if (e.pointerId === jid) jset(e); });
-  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function(ev){ jz.addEventListener(ev, function(){ jid = null; joy.on = false; joy.x = joy.y = 0; knob.style.transform = ''; }); });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function(ev){ jz.addEventListener(ev, function(e){ if (e.pointerId !== jid) return; jid = null; joy.on = false; joy.x = joy.y = 0; knob.style.transform = ''; }); });
+  // OrbitControls nghe pointermove/pointerup ở document sau lần chạm canvas và coi sự kiện của joystick, các nút là cú kéo xoay thứ hai (camera dao động, lệch góc): không cho chúng nổi bọt lên
+  ['joy', 'btnCam', 'btnHorn', 'btnBoost', 'btnMount', 'minimap', 'btnInfo', 'btnPlay', 'btnMenu'].forEach(function(id){ var el = document.getElementById(id); if (el) ['pointermove', 'pointerup', 'pointercancel'].forEach(function(ev){ el.addEventListener(ev, function(e){ e.stopPropagation(); }); }); });
   ST.controls.addEventListener('start', function(){ PLAY.dragging = true; PLAY.lastDrag = performance.now() / 1000; });
   ST.controls.addEventListener('end', function(){ PLAY.dragging = false; PLAY.lastDrag = performance.now() / 1000; });
   document.getElementById('cardGo').addEventListener('click', function(){ if (current >= 0){ teleportTo(LM[current]); closeCard(); } });
@@ -370,10 +375,11 @@ function frame(now){
   ST.crowdU.uTime.value = ts; ST.crowdU.uCam.value.copy(camera.position); ST.crowdU.uFogColor.value.copy(scene.fog.color); ST.crowdU.uFogNear.value = scene.fog.near; ST.crowdU.uFogFar.value = scene.fog.far;
   if (PLAY.on && !tween){ updatePlayer(dt); followCamera(dt, PLAY.dragging); }
   if (tween) stepTween(now || performance.now());
-  if (camShifted){ if (camera.position.distanceToSquared(camShort) < 1e-9) camera.position.copy(camDes); camShifted = false; }   // trả camera về vị trí mong muốn trước khi điều khiển cập nhật
   if (!PLAY.on) ST.controls.maxPolarAngle = lerp(1.5, 1.36, clamp((camera.position.distanceTo(ST.controls.target) - 1) / 5, 0, 1));   // gần đất cho nhìn ngang tới 86°, xa vẫn 78°
   ST.controls.update(); constrain();
-  camDes.copy(camera.position); if (!tween){ var cb = camBlock(ST.controls.target, camDes); if (cb < 1){ camera.position.lerpVectors(ST.controls.target, camDes, cb); var gc2 = surfY(camera.position.x, camera.position.z) + (PLAY.on ? 0.03 * KS : 0.05); if (camera.position.y < gc2) camera.position.y = gc2; camShort.copy(camera.position); camShifted = true; } }   // rút ngắn rồi vẫn phải ở trên mặt đất (điểm nhìn nằm dưới mặt đất 15%)   // không xuyên nhà, địa hình
+  camDes.copy(camera.position);   // vị trí camera người dùng muốn; nếu nhà chắn thì chỉ rút khi vẽ rồi trả lại ở cuối khung
+  if (tween) camK = 1; else { var cb = camBlock(ST.controls.target, camDes); camK += (cb - camK) * (1 - Math.exp(-dt * (cb < camK ? 20 : 3)));
+    if (camK < 0.995){ camera.position.lerpVectors(ST.controls.target, camDes, camK); var gc2 = surfY(camera.position.x, camera.position.z) + (PLAY.on ? 0.03 * KS : 0.05); if (camera.position.y < gc2) camera.position.y = gc2; camShifted = true; } }   // rút ngắn rồi vẫn phải ở trên mặt đất (điểm nhìn nằm dưới mặt đất 15%)
   var dist = camera.position.distanceTo(ST.controls.target), nn = clamp(dist * 0.008, 0.005, 6);
   if (Math.abs(nn - camera.near) > nn * 0.15){ camera.near = nn; camera.updateProjectionMatrix(); }
   updateShadow(dist);
@@ -381,6 +387,7 @@ function frame(now){
   updateMinimap(now || performance.now());
   renderFrame(dist, dt);
   updateWeather(dt, ts, dist); updateLabels(dist); updateHud(dist); updateAudio(dt, dist); updateLocate(dist, ts); updatePlayerMarker(dist); governor(rawDt);
+  if (camShifted){ camera.position.copy(camDes); camShifted = false; }   // trả camera về vị trí mong muốn để điều khiển và cú kéo giữa hai khung không bị lệch
 }
 
 /* ---------- bộ điều tốc: FPS thấp kéo dài thì hạ chất lượng từng bậc ---------- */
@@ -424,7 +431,7 @@ async function build(){
   computeHome(); setCam(homeTarget, homeDist, HOME_PHI, HOME_TH); ST.controls.update(); setSpin(!reduceMotion);
   // Hook cho tools/shot.js và test: đặt thẳng camera, giờ, thời tiết (không chờ nội suy theo khung hình, mà trong SwiftShader mỗi khung mất vài giây)
   window.__nt = { THREE:THREE, frames:function(){ return frameN; },
-    jump:function(t, r, phi, th){ tween = null; ST.controls.enabled = true; ST.controls.enableDamping = true; setCam(t, r, phi, th); ST.controls.update(); ST.shadowDirty = true; },
+    jump:function(t, r, phi, th){ tween = null; ST.controls.enabled = true; ST.controls.enableDamping = !PLAY.on; setCam(t, r, phi, th); ST.controls.update(); ST.shadowDirty = true; },
     home:function(){ this.jump(homeTarget, homeDist, HOME_PHI, HOME_TH); },
     setTod:function(n){ ST.todUser = true; ST.WX.real = false; ST.todTarget = ST.tod = n; applyTod(n); syncTimeBtn(); },
     setWx:function(m){ ST.WX.mode = m; syncWxBtn(); updateWeather(2, 0, 100); },

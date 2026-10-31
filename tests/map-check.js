@@ -64,7 +64,12 @@ report('Mặt nước khớp OSM (sai ' + (pw * 100).toFixed(1) + '% ô nước,
   const rl = roads.filter(R => R.c <= 4).map(R => { const L = R.pts.reduce((a, p, i) => i ? a + Math.hypot(p[0] - R.pts[i - 1][0], p[1] - R.pts[i - 1][1]) : 0, 0), sm = resample(R.pts, L / Math.max(1, Math.ceil(L / 0.5)) * 0.9999);
     return { w:R.w, c:R.c, rail:false, pts:sm.map((p, i) => { const a = sm[Math.max(0, i - 1)], b = sm[Math.min(sm.length - 1, i + 1)], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return { x:p[0], z:p[1], fx:(b[0] - a[0]) / l, fz:(b[1] - a[1]) / l, br:false, cw:false }; }) }; });
   const S = genStreetTrees(rl, Gd, MK), badS = S.trees.filter(t => near(swM, t.x, t.z)).concat(S.palms.filter(t => near(swM, t.x, t.z) || coastX(t.z) - t.x < 0.6));
+  // mặt tiền (mặt có cửa sổ) của nhà ống dựng từ chân đế OSM (fp; nhà mặt tiền sinh dọc đường vốn đã quay ra đường) phải quay ra đường: hướng ra f = fc·(sin r, cos r); đường phải nằm phía trước, khoảng hở ra đường tính theo trục trước không nhỏ hơn theo trục bên
+  let nFace = 0, okFace = 0; B.tubes.filter(b => b.fp).forEach(b => { let best = null, bd = 0.6; for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++){ const a = carM.get(key(b.x + i * 0.5, b.z + j * 0.5)); if (a) for (const q of a){ const dd = Math.hypot(q[0] - b.x, q[1] - b.z) - q[2] - Math.max(b.w, b.d) / 2; if (dd < bd){ bd = dd; best = q; } } }
+    if (!best) return; nFace++; const vx = best[0] - b.x, vz = best[1] - b.z, fz = (vx * Math.sin(b.r) + vz * Math.cos(b.r)) * (b.fc > 0 ? 1 : -1), fx = Math.abs(vx * Math.cos(b.r) - vz * Math.sin(b.r));
+    if (fz > 0 && fz - b.d / 2 >= fx - b.w / 2 - 0.05) okFace++; });
   const errs = [];
+  if (nFace > 200 && okFace / nFace < 0.95) errs.push('chỉ ' + okFace + '/' + nFace + ' nhà ống chân đế OSM gần đường quay mặt tiền ra đường (cần ≥ 95%)');
   if (onCar / nb > 0.001) errs.push((onCar) + '/' + nb + ' nhà đè lên lòng đường (cho phép 0,1%: chân đế OSM thật có thể chạm)');
   if (onSw / nb > 0.02) errs.push((onSw) + '/' + nb + ' nhà chạm vỉa hè (cho phép 2%)');
   if (badF.length) errs.push(badF.length + ' cây rừng/vườn trên vỉa hè hoặc trên cát sát bờ (vd ' + ll(badF[0].x, badF[0].z) + ')');

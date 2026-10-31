@@ -33,6 +33,8 @@ const VIEWS = {
   nightmids: { mid:60, r:3.5, phi:1.15, th:0.6, tod:2, wx:'sun', frames:16 },   // chung cư giữa khối phố (B.mids[60]) ban đêm: cửa sổ sáng, không còn cam phẳng
   duskmids:  { mid:60, r:3.5, phi:1.15, th:0.6, tod:1, wx:'sun', frames:16 },
   nightvilla:{ villaNear:[12.2475, 109.1915], r:3.5, phi:1.15, th:0.6, tod:2, wx:'sun', frames:16 },
+  awnings:   { ll:[12.2475, 109.1925], r:0.45, phi:1.3, th:0.8, tod:0, wx:'sun', frames:16 },   // camera thấp nhìn dọc phố: biển hiệu, mái hiên mặt tiền
+  awnings2:  { ll:[12.2445, 109.1925], r:0.45, phi:1.3, th:2.4, tod:0, wx:'sun', frames:16 },
   beachtop:  { ll:[12.2330, 109.1975], r:22, phi:0.05, th:0, tod:0, wx:'sun' },
   streettop: { ll:[12.2475, 109.1915], r:16, phi:0.05, th:0, tod:0, wx:'sun' },
   seanear:   { ll:[12.2250, 109.2150], r:6, phi:1.3, th:1.6, tod:0, wx:'sun' },

@@ -519,6 +519,13 @@ function genBuildingsOSM(G, MK, dens, extraTowers){
   function rfree(x, z, r){ var near = false; for (var i = -1; i <= 1; i++) for (var j = -1; j <= 1; j++){ var a = rocc.get(key(x + i * 0.5, z + j * 0.5)); if (a) for (var k = 0; k < a.length; k++){ var q = a[k], d = Math.hypot(q[0] - x, q[1] - z) - q[2] - r; if (d < 0) return 0; if (d < 0.45) near = true; } } return near ? 2 : 1; }
   function cornersFree(x, z, hw, hd, ang){ var c = Math.cos(ang), s = Math.sin(ang); for (var k = 0; k < 4; k++){ var sx = (k & 1 ? 1 : -1) * hw, sz = (k & 2 ? 1 : -1) * hd; if (!rfree(x + sx * c - sz * s, z + sx * s + sz * c, 0)) return false; } return rfree(x, z, 0) !== 0; }
   function styleAt(x, z){ var zn = G.zoneAt(x, z); return zn >= 10 ? DIST[zn - 10] : null; }
+  // quay mặt tiền (hai mặt ±z có cửa sổ) ra con đường gần nhất (trong ~75 m): đường nằm phía ±z thì giữ, nằm phía ±x thì xoay 90° và đổi rộng/sâu (hình chữ nhật không đổi nên ok() vẫn đúng); không có đường thì giữ fc mặc định
+  function faceRoad(x, z, ang, w, d, fc0){ var best = null, bd = 1.5;
+    for (var i = -3; i <= 3; i++) for (var j = -3; j <= 3; j++){ var a = rocc.get(key(x + i * 0.5, z + j * 0.5)); if (a) for (var k = 0; k < a.length; k++){ var q = a[k], dd = Math.hypot(q[0] - x, q[1] - z) - q[2]; if (dd < bd){ bd = dd; best = q; } } }
+    if (!best) return { ang:ang, w:w, d:d, fc:fc0 };
+    var rx = best[0] - x, rz = best[1] - z, c = Math.cos(ang), s = Math.sin(ang), dzl = -rx * s + rz * c, dxl = rx * c + rz * s;
+    if (Math.abs(dzl) >= Math.abs(dxl)) return { ang:ang, w:w, d:d, fc:dzl >= 0 ? 1 : -1 };
+    return { ang:ang + Math.PI / 2, w:d, d:w, fc:dxl > 0 ? -1 : 1 }; }
   function addTube(x, z, y, w, d, ang, fl, fc){ var f = TUBE_F[nearestIdx(TUBE_F, fl)];
     out.tubes.push({ x:x, z:z, y:y, w:w, d:d, h:f * FLOOR, r:-ang, fc:fc, f:f, c:TUBE_C[(rb() * TUBE_C.length) | 0] });
     if (rb() < 0.45) out.tanks.push({ x:x + (rb() - 0.5) * w * 0.4, z:z + (rb() - 0.5) * d * 0.5, y:y + f * FLOOR, r:-ang }); }
@@ -532,8 +539,9 @@ function genBuildingsOSM(G, MK, dens, extraTowers){
     var D = styleAt(o.x, o.z), st = D ? D.style : 'village', lv = b.lv || (st === 'city' ? 2 + Math.floor(Math.pow(rb(), 1.6) * 5) : 1 + Math.floor(rb() * 2));
     if (lv >= 8) addBlock(out.towers, TOWER_F, TOWER_C, o.x, o.z, y, w, d, ang, lv, rb() < 0.3);
     else if (w * d > 0.3 && lv >= 3) addBlock(out.mids, MID_F, TOWER_C, o.x, o.z, y, w, d, ang, lv);
-    else if (st === 'city' || Math.min(w, d) < 0.24) addTube(o.x, o.z, y, w, d, ang, lv, rb() < 0.5 ? 1 : -1);
-    else addVilla(o.x, o.z, y, w, d, ang, lv, rb() < 0.5 ? 1 : -1, D);
+    else { var nT0 = out.tubes.length, fr = faceRoad(o.x, o.z, ang, w, d, rb() < 0.5 ? 1 : -1);   // vẫn gọi rb() một lần như trước để thế giới không đổi
+      if (st === 'city' || Math.min(w, d) < 0.24) addTube(o.x, o.z, y, fr.w, fr.d, fr.ang, lv, fr.fc); else addVilla(o.x, o.z, y, fr.w, fr.d, fr.ang, lv, fr.fc, D);
+      if (out.tubes.length > nT0) out.tubes[nT0].fp = true; }   // fp: nhà ống từ chân đế OSM (test mặt tiền ra đường)
     mark(o.x, o.z, Math.min(w, d) * 0.5); });
   // (2) mặt tiền dọc đường thật (bỏ cao tốc, quốc lộ; chỉ trong các khu dân cư DIST)
   OSM.roads.forEach(function(Rd){ if (Rd.c <= 1 || Rd.bridge) return; var P2 = Rd.pts;
