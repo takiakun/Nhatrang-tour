@@ -1,6 +1,6 @@
 import { THREE } from './three.js';
 import { ST } from '../state.js';
-import { BD, BW, BX0, BX1, BZ0, BZ1, GEO_LABELS, LM_DEF, OSM, P, RAIL, ROADS, ROAD_LABELS, boardClamp, buildGrid, clamp, coastX, genBuildings, genTrees, inBoard, islandAt, lerp, paintGround, segD2, toLL, worldCtx } from './geo.js';
+import { BD, BW, BX0, BX1, BZ0, BZ1, GEO_LABELS, LM_DEF, OSM, P, RAIL, ROADS, ROAD_LABELS, boardClamp, buildGrid, clamp, coastX, genBuildings, genTrees, inBoard, islandAt, lerp, paintGround, segD2, smooth, toLL, worldCtx } from './geo.js';
 import { DP, LITE, LM, LMI, LMP, RESORT_HOTELS, SC, _d, anim, applyTod, buildBoats, buildBridges, buildCable, buildCity, buildLamps, buildLandmarks, buildResort, buildSkirt, buildSky, buildTerrain, buildTraffic, buildVegetation, camera, carPts, drawOverlays, fail, gy, initDetail, lampK, loader, osmMajorRoads, pickGroups, reduceMotion, renderer, roadPoint, sampleRoad, scene, stage, step, sun, sunDir, updateDetail } from './scene.js';
 import { buildCrowd } from './crowd.js';
 import { KS, KV, camBlock, PL, PLAY, buildPlayer, followCamera, joy, syncPlayBtns, teleportTo, toggleMount, updatePlayer } from './player.js';
@@ -63,6 +63,7 @@ function constrain(){ var tg = ST.controls.target, c = boardClamp(clamp(tg.x, BX
 var shadowKey = [1e9, 1e9, 0];
 function updateShadow(dist){
   var half = clamp(dist * 0.75, 1.5, 240), hq = Math.pow(1.15, Math.round(Math.log(half) / Math.log(1.15))), tex = 2 * hq / sun.shadow.mapSize.x, tg = ST.controls.target;
+  sun.shadow.intensity = 1 - 0.55 * smooth(120, 320, dist);   // toàn cảnh: một texel ~20 m nên bóng chỉ là đốm nhiễu, mờ dần
   sun.shadow.normalBias = clamp(tex * 2, 0.004, 0.035);   // theo cỡ texel của khung bóng: gần đất khung nhỏ thì bias nhỏ, bóng không bị hở
   var cx = Math.round(tg.x / (tex * 4)) * tex * 4, cz = Math.round(tg.z / (tex * 4)) * tex * 4;
   if (ST.shadowDirty || hq !== shadowKey[2] || cx !== shadowKey[0] || cz !== shadowKey[1]){
@@ -413,9 +414,10 @@ ST.GOV = { t:0, n:0, acc:0, level:0, wait:4 };
 function governor(d){ if (document.hidden || d <= 0 || d > 0.5) return; ST.GOV.t += d; if (ST.GOV.t < ST.GOV.wait) return; ST.GOV.acc += d; ST.GOV.n++;
   if (ST.GOV.acc < 2.5) return; var fps = ST.GOV.n / ST.GOV.acc; ST.GOV.acc = 0; ST.GOV.n = 0;
   if (fps >= 38 || ST.GOV.level >= 3) return; ST.GOV.level++; ST.GOV.t = 0; ST.GOV.wait = 3;
-  if (ST.GOV.level === 1){ renderer.setPixelRatio(Math.max(1, renderer.getPixelRatio() * 0.7)); renderer.setSize(innerWidth, innerHeight); resizePost(); }   // cũng tắt hậu kỳ (renderFrame)
-  else if (ST.GOV.level === 2){ renderer.shadowMap.enabled = false; scene.traverse(function(o){ if (o.material && o.material.needsUpdate !== undefined) o.material.needsUpdate = true; }); }
-  else { var C = anim.crowd; if (C) C.mesh.geometry.instanceCount = Math.floor(C.n / 2); try { if (!LITE) localStorage.setItem('nt-q', 'lite'); } catch (e){} }
+  // hạ từng nấc nhẹ (trước đây bậc 1 nhân độ phân giải ×0,7 và tắt luôn hậu kỳ làm ảnh mờ, mất viền): 1 bỏ FXAA và giảm độ phân giải ×0,85; 2 thêm giảm ×0,85 và tắt bóng; 3 tắt hậu kỳ, bớt nửa đám đông
+  if (ST.GOV.level <= 2){ renderer.setPixelRatio(Math.max(1, renderer.getPixelRatio() * 0.85)); renderer.setSize(innerWidth, innerHeight); resizePost(); }
+  if (ST.GOV.level === 2){ renderer.shadowMap.enabled = false; scene.traverse(function(o){ if (o.material && o.material.needsUpdate !== undefined) o.material.needsUpdate = true; }); }
+  else if (ST.GOV.level === 3){ var C = anim.crowd; if (C) C.mesh.geometry.instanceCount = Math.floor(C.n / 2); try { if (!LITE) localStorage.setItem('nt-q', 'lite'); } catch (e){} }
   console.info('[chất lượng] FPS ' + fps.toFixed(0) + ' → hạ xuống bậc ' + ST.GOV.level); }
 
 /* ======================= BUILD SEQUENCE ======================= */
