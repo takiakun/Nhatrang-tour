@@ -8,7 +8,7 @@ const fs = require('fs'), path = require('path'), { chromium } = require('playwr
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i < 0 ? d : (process.argv[i + 1] && !process.argv[i + 1].startsWith('--') ? process.argv[i + 1] : true); };
 const OUT = process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : '.', PREFIX = arg('prefix', 'shot'), MOBILE = !!arg('mobile', false);
 const [W, H] = String(arg('size', MOBILE ? '430x932' : '1100x720')).split('x').map(Number), DIST = path.resolve(arg('dist', 'dist')), LEGACY = arg('legacy-three', null);
-// Mỗi cảnh: ll = [vĩ độ, kinh độ] hoặc lm = id địa danh; r = khoảng cách, phi = góc nghiêng (0 = nhìn thẳng xuống), th = hướng; tod: 0 ngày, 1 hoàng hôn, 2 đêm; wx: real|sun|rain
+// Mỗi cảnh: ll = [vĩ độ, kinh độ] hoặc lm = id địa danh; ty = nâng điểm nhìn lên (đơn vị thế giới); cảnh play* phải chụp sau cùng (không thoát chế độ lái giữa các cảnh); r = khoảng cách, phi = góc nghiêng (0 = nhìn thẳng xuống), th = hướng; tod: 0 ngày, 1 hoàng hôn, 2 đêm; wx: real|sun|rain
 const VIEWS = {
   overview:  { home:true, tod:0, wx:'sun' },
   center:    { ll:[12.2475, 109.1915], r:45, phi:0.9, th:0.5, tod:0, wx:'sun' },
@@ -37,6 +37,8 @@ const VIEWS = {
   nightvilla:{ villaNear:[12.2475, 109.1915], r:3.5, phi:1.15, th:0.6, tod:2, wx:'sun', frames:16 },
   awnings:   { ll:[12.2475, 109.1925], r:0.45, phi:1.3, th:0.8, tod:0, wx:'sun', frames:16 },   // camera thấp nhìn dọc phố: biển hiệu, mái hiên mặt tiền
   awnings2:  { ll:[12.2445, 109.1925], r:0.45, phi:1.3, th:2.4, tod:0, wx:'sun', frames:16 },
+  palmnear:  { ll:[12.23277, 109.19808], ty:0.4, r:3.4, phi:1.42, th:1.1, tod:0, wx:'sun', frames:16 },   // camera gần dãy dừa ven biển (thân cong, tàu lá rủ)
+  palmnight: { ll:[12.23277, 109.19808], ty:0.4, r:3.4, phi:1.42, th:1.1, tod:2, wx:'sun', frames:16 },
   beachtop:  { ll:[12.2330, 109.1975], r:22, phi:0.05, th:0, tod:0, wx:'sun' },
   streettop: { ll:[12.2475, 109.1915], r:16, phi:0.05, th:0, tod:0, wx:'sun' },
   seanear:   { ll:[12.2250, 109.2150], r:6, phi:1.3, th:1.6, tod:0, wx:'sun' },
@@ -77,7 +79,7 @@ const MIME = { '.html':'text/html', '.js':'application/javascript', '.css':'text
     await page.evaluate(([v]) => { __nt.setTod(v.tod); __nt.setWx(v.wx); if (v.home) return __nt.home();
       if (v.play){ __nt.enterPlay(); if (v.play.mount) __nt.toggleMount(); if (v.play.nav) __nt.setNav(v.play.nav); const P = __nt.PL; return __nt.jump(new (__nt.THREE || window.THREE).Vector3(P.x, P.y + 0.0315, P.z), v.play.r, v.play.phi, P.yaw + Math.PI); }
       const p = v.mid != null ? [__nt.B.mids[v.mid].x, __nt.B.mids[v.mid].z] : v.villaNear ? (() => { const q = [(v.villaNear[1] - 109.240) * 2176, -(v.villaNear[0] - 12.226) * 2212]; let b = null, bd = 1e9; for (const h of __nt.B.villas){ const d = Math.hypot(h.x - q[0], h.z - q[1]); if (d < bd){ bd = d; b = h; } } return [b.x, b.z]; })() : v.lm ? __nt.lmp[v.lm] : [(v.ll[1] - 109.240) * 2176, -(v.ll[0] - 12.226) * 2212];
-      __nt.jump(new (__nt.THREE || window.THREE).Vector3(p[0], Math.max(__nt.G.hAt(p[0], p[1]), 0), p[1]), v.r, v.phi, v.th); }, [v]);
+      __nt.jump(new (__nt.THREE || window.THREE).Vector3(p[0], Math.max(__nt.G.hAt(p[0], p[1]), 0) + (v.ty || 0), p[1]), v.r, v.phi, v.th); }, [v]);
     await frames(v.frames || (v.wx === 'rain' ? 4 : 3));
     const file = path.join(OUT, PREFIX + '-' + name + '.png'); await page.screenshot({ path:file, timeout:300000 }); console.log('đã chụp ' + file); }
   await browser.close();
