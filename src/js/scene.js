@@ -140,11 +140,15 @@ function instChunks(geo, material, items, setter, opt){ opt = opt || {};
     scene.add(im); out.push(im); });
   return out; }
 function dynInst(geo, material, n, cast){ var im = new THREE.InstancedMesh(geo, material, Math.max(n, 1)); im.count = n; im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.frustumCulled = false; im.castShadow = cast !== false; im.receiveShadow = true; scene.add(im); return im; }
-function radialTex(inner, outer){ var c = document.createElement('canvas'); c.width = c.height = 64; var x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
-  g.addColorStop(0, inner); g.addColorStop(0.35, inner); g.addColorStop(1, outer); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); }
+// Quầng sáng tròn: ImageData 128², alpha = pow(1 − r², e) (lõi sáng, quầng mượt, không viền, không banding); chỉ lấy màu RGB của `inner`, `outer` bỏ qua (giữ chữ ký cũ)
+function radialTex(inner, outer, e){ var m = /(\d+)[ ,]+(\d+)[ ,]+(\d+)/.exec(inner || ''), rgb = m ? [+m[1], +m[2], +m[3]] : [255, 255, 255], N = 128, d = new Uint8Array(N * N * 4), pw = e || 2.2;
+  for (var j = 0; j < N; j++) for (var i = 0; i < N; i++){ var dx = (i + 0.5) / N * 2 - 1, dy = (j + 0.5) / N * 2 - 1, r2 = Math.min(1, dx * dx + dy * dy), k = (j * N + i) * 4;
+    d[k] = rgb[0]; d[k + 1] = rgb[1]; d[k + 2] = rgb[2]; d[k + 3] = Math.round(255 * Math.pow(1 - r2, pw)); }
+  var t = new THREE.DataTexture(d, N, N, THREE.RGBAFormat); t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.needsUpdate = true; return t; }
 function glowPoints(positions, colors, size, color){ var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); if (colors) g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   var m = new THREE.PointsMaterial({ size:size, sizeAttenuation:true, map:radialTex('rgba(255,255,255,1)', 'rgba(255,255,255,0)'), color:color || '#ffffff', vertexColors:!!colors, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending, fog:false });
-  m.onBeforeCompile = function(sh){ sh.vertexShader = sh.vertexShader.replace('#include <fog_vertex>', '#include <fog_vertex>\n\tgl_PointSize = max(gl_PointSize, 1.8);'); };
+  // điểm sáng nhỏ theo khoảng cách thật (size ~0,06 = 3 m); chặn 2..80 px để sát camera không phình thành đĩa lấp màn hình (iOS giới hạn ~511 px)
+  m.onBeforeCompile = function(sh){ sh.vertexShader = sh.vertexShader.replace('#include <fog_vertex>', '#include <fog_vertex>\n\tgl_PointSize = clamp(gl_PointSize, 2.0, 80.0);'); };
   var p = new THREE.Points(g, m); p.frustumCulled = false; p.renderOrder = 5; scene.add(p); return p; }
 
 /* ---------- landmark builders (model units, scaled when placed) ---------- */
@@ -212,12 +216,56 @@ var coracleGeo = (function(){ var g = new THREE.SphereGeometry(0.8, 12, 5, 0, Ma
 var canopyGeo = merge([[blobGeo(), MX(0, 0.56, 0, 0, 0, 0, 0.5, 0.42, 0.5), '#ffffff'], [new THREE.CylinderGeometry(0.045, 0.065, 0.42, 5), MX(0, 0.21, 0), '#8a6a4a']]);
 var forestGeo = merge([[blobGeo(), MX(0, 0.3, 0, 0, 0, 0, 0.58, 0.52, 0.58), '#ffffff']]);
 var coneTreeGeo = merge([[new THREE.ConeGeometry(0.34, 1.0, 7), MX(0, 0.62, 0), '#ffffff'], [new THREE.CylinderGeometry(0.04, 0.05, 0.2, 5), MX(0, 0.1, 0), '#7a5a40']]);
-var palmGeo = (function(){ var parts = [[new THREE.CylinderGeometry(0.022, 0.034, 0.36, 5), MX(0, 0.18, 0, 0, 0, 0.06), '#8b6b4a'], [new THREE.CylinderGeometry(0.018, 0.022, 0.3, 5), MX(0.016, 0.5, 0, 0, 0, -0.1), '#8b6b4a']];
-  for (var k = 0; k < 7; k++){ var fr = new THREE.BoxGeometry(0.075, 0.01, 0.34); fr.translate(0, 0, 0.17);
-    var m = new THREE.Matrix4().makeTranslation(0.03, 0.64, 0).multiply(new THREE.Matrix4().makeRotationY(k / 7 * Math.PI * 2 + 0.3)).multiply(new THREE.Matrix4().makeRotationX(0.45 + (k % 2) * 0.25));
-    parts.push([fr, m, '#3f9a45']); }
-  parts.push([new THREE.SphereGeometry(0.03, 6, 4), MX(0.03, 0.6, 0.02), '#6b5a2a']);
-  return merge(parts); })();
+// Cây dừa: thân cong có vòng đốt và phình gốc, cổ ngọn xanh, vài quả dừa, 9–12 tàu lá đặt theo góc vàng (cong rồi rủ ngọn, mép răng cưa, mặt cắt gập chữ V, gân giữa sáng).
+// Tự phát position / normal / color (tuyến tính) và `aSway`: 0 ở gốc thân → 0,35 ở ngọn thân → 1 ở đầu tàu lá (trọng số lay theo gió, chưa dùng ở đây; shader gió nối vào sau).
+// Không dùng merge() (nó phát non-indexed và không có aSway). Chỉ dùng toán thuần, chiều cao tổng ~0,64–0,70 đơn vị (như dừa cũ) nên KEEP và hàng dừa ven biển giữ nguyên.
+// seed 0..2: độ nghiêng thân, số tàu, số quả, tàu vàng úa khác nhau; opt.lite: ít vòng, ít tàu (~240 tam giác thay vì ~430).
+function makePalmGeo(seed, opt){
+  var lite = !!(opt && opt.lite), rnd = mulberry32(101 + seed * 17), P_ = [], C_ = [], S_ = [], IX = [];
+  function lin(h){ var n = parseInt(h.slice(1), 16), f = function(v){ v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return [f((n >> 16) & 255), f((n >> 8) & 255), f(n & 255)]; }
+  function mixc(a, b, t){ return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
+  function vert(x, y, z, c, s){ P_.push(x, y, z); C_.push(c[0], c[1], c[2]); S_.push(s); return P_.length / 3 - 1; }
+  var sd = seed % 3, H = [0.54, 0.56, 0.53][sd], lean = [0.02, 0.05, 0.08][sd], ph = seed * 2.1 + 0.7;
+  /* ---- thân: R vòng × SD cạnh, tâm cong x = lean·t^1.7 + uốn nhẹ; bán kính thon, phình gốc; vòng đốt chẵn tối hơn ---- */
+  var R = lite ? 6 : 8, SD = lite ? 5 : 6, ring = [], bark0 = lin('#7a6046'), bark1 = lin('#a08868'), green0 = lin('#5a9a48'), green1 = lin('#86bb5e');
+  function trunkC(t){ return [lean * Math.pow(t, 1.7) + 0.012 * t * Math.sin(t * 3.4 + ph), H * t, 0.010 * t * Math.sin(t * 2.6 + ph * 1.7)]; }
+  for (var k = 0; k < R; k++){ var t = k / (R - 1), c = trunkC(t), r = 0.0325 - 0.0105 * t + 0.022 * Math.exp(-t * 10), col, row = [];
+    if (k >= R - 2){ r = k === R - 2 ? 0.027 : 0.017; col = mixc(green0, green1, k - (R - 2)); }
+    else { r *= k % 2 ? 1.07 : 0.95; col = mixc(bark0, bark1, t); if (k && k % 2 === 0) col = [col[0] * 0.68, col[1] * 0.68, col[2] * 0.68]; }
+    for (var j = 0; j < SD; j++){ var a = j / SD * Math.PI * 2 + k * 0.35; row.push(vert(c[0] + Math.cos(a) * r, c[1], c[2] + Math.sin(a) * r, col, 0.35 * t * t)); }
+    ring.push(row); }
+  for (var k2 = 0; k2 < R - 1; k2++) for (var j2 = 0; j2 < SD; j2++){ var a1 = ring[k2][j2], b1 = ring[k2][(j2 + 1) % SD], c1 = ring[k2 + 1][j2], d1 = ring[k2 + 1][(j2 + 1) % SD]; IX.push(a1, c1, b1, b1, c1, d1); }
+  var cr = trunkC(1), apex = vert(cr[0], cr[1] + 0.014, cr[2], green1, 0.35);
+  for (var j3 = 0; j3 < SD; j3++) IX.push(ring[R - 1][j3], apex, ring[R - 1][(j3 + 1) % SD]);
+  /* ---- quả dừa: lưỡng chóp 6 cạnh dưới tán, xanh và nâu ---- */
+  var NN = lite ? 2 : [3, 4, 3][sd], nutG = lin('#78a448'), nutB = lin('#6b4a26');
+  for (var q = 0; q < NN; q++){ var qa = q / NN * Math.PI * 2 + ph, qx = cr[0] + Math.cos(qa) * 0.03, qy = cr[1] - 0.03 - (q % 2) * 0.012, qz = cr[2] + Math.sin(qa) * 0.03, qc = q % 2 ? nutB : nutG, eq = [];
+    var qt = vert(qx, qy + 0.026, qz, qc, 0.35), qb = vert(qx, qy - 0.026, qz, qc, 0.35);
+    for (var e = 0; e < 6; e++){ var ea = e / 6 * Math.PI * 2; eq.push(vert(qx + Math.cos(ea) * 0.021, qy, qz + Math.sin(ea) * 0.021, qc, 0.35)); }
+    for (var e2 = 0; e2 < 6; e2++){ var e3 = (e2 + 1) % 6; IX.push(eq[e2], qt, eq[e3], eq[e3], qb, eq[e2]); } }
+  /* ---- tàu lá: góc vàng; pitch(u) = pitch0 − droop·u^1.3; bề rộng thon; hàng lẻ hẹp 0,6× tạo răng cưa; hai mép nâng lên thành chữ V ---- */
+  var NF = lite ? [9, 8, 9][sd] : [11, 10, 12][sd], SG = lite ? 5 : 7, a0 = rnd() * 6.28, GREEN = ['#3f9a45', '#4aa84a', '#37893f'].map(lin), rib = lin('#c4e68a'), dead = lin('#b5a63c');
+  for (var i = 0; i < NF; i++){ var tf = i / (NF - 1), phi = a0 + i * 2.39996, jit = rnd(), pitch0 = 0.95 - 0.8 * tf + (jit - 0.5) * 0.1, droop = 0.8 + 0.9 * tf + jit * 0.2, L = 0.29 * (0.88 + 0.24 * rnd()), Wm = 0.078 * (0.9 + 0.2 * rnd());
+    var base = i >= NF - (sd === 1 ? 2 : 1) ? dead : GREEN[(rnd() * 3) | 0], rx = Math.cos(phi), rz = Math.sin(phi), sx = -rz, sz = rx, px = cr[0], py = cr[1] - 0.004, pz = cr[2], rows = [];
+    for (var s = 0; s <= SG; s++){ var u = s / SG, pit = pitch0 - droop * Math.pow(u, 1.3), sw = 0.35 + 0.65 * u, nx = -Math.sin(pit) * rx, ny = Math.cos(pit), nz = -Math.sin(pit) * rz;
+      if (s === SG){ rows.push([vert(px, py, pz, mixc(rib, base, 0.3), 1)]); break; }
+      var w = Math.max(Math.sin(Math.PI * Math.pow(u, 0.6)) * Wm, 0.005) * (s % 2 ? 0.62 : 1), fold = 0.5 * w, ce = mixc(base, [base[0] * 0.55, base[1] * 0.55, base[2] * 0.55], 1 - u), cm = mixc(ce, rib, 0.5 * (1 - 0.4 * u));
+      rows.push([vert(px + sx * w + nx * fold, py + ny * fold, pz + sz * w + nz * fold, ce, sw), vert(px, py, pz, cm, sw), vert(px - sx * w + nx * fold, py + ny * fold, pz - sz * w + nz * fold, ce, sw)]);
+      var pm = pitch0 - droop * Math.pow((s + 0.5) / SG, 1.3), st = L / SG; px += Math.cos(pm) * rx * st; py += Math.sin(pm) * st; pz += Math.cos(pm) * rz * st; }
+    for (var s2 = 0; s2 < SG; s2++){ var A = rows[s2], B = rows[s2 + 1];
+      if (B.length === 1) IX.push(A[0], B[0], A[1], A[1], B[0], A[2]);
+      else IX.push(A[0], B[0], A[1], A[1], B[0], B[1], A[1], B[1], A[2], A[2], B[1], B[2]); } }
+  /* ---- pháp tuyến mượt: cộng pháp tuyến mặt (theo diện tích) vào đỉnh chung ---- */
+  var N_ = new Array(P_.length).fill(0);
+  for (var f = 0; f < IX.length; f += 3){ var i0 = IX[f] * 3, i1 = IX[f + 1] * 3, i2 = IX[f + 2] * 3,
+      e1x = P_[i1] - P_[i0], e1y = P_[i1 + 1] - P_[i0 + 1], e1z = P_[i1 + 2] - P_[i0 + 2], e2x = P_[i2] - P_[i0], e2y = P_[i2 + 1] - P_[i0 + 1], e2z = P_[i2 + 2] - P_[i0 + 2],
+      fx = e1y * e2z - e1z * e2y, fy = e1z * e2x - e1x * e2z, fz = e1x * e2y - e1y * e2x;
+    [i0, i1, i2].forEach(function(o){ N_[o] += fx; N_[o + 1] += fy; N_[o + 2] += fz; }); }
+  for (var v = 0; v < N_.length; v += 3){ var l = Math.hypot(N_[v], N_[v + 1], N_[v + 2]) || 1; N_[v] /= l; N_[v + 1] /= l; N_[v + 2] /= l; }
+  var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P_, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N_, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(C_, 3));
+  g.setAttribute('aSway', new THREE.Float32BufferAttribute(S_, 1)); g.setIndex(IX); g.computeBoundingSphere(); return g; }
+var PALM_GEOS = [0, 1, 2].map(function(k){ return makePalmGeo(k, { lite:LITE }); });
+var palmMat = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.8, side:THREE.DoubleSide });   // vật liệu riêng (VCM dùng chung với dù, thuyền thúng); `aSway` chờ shader gió
 var umbGeo = merge([[new THREE.CylinderGeometry(0.006, 0.006, 0.13, 4), MX(0, 0.065, 0), '#dddddd'], [new THREE.ConeGeometry(0.085, 0.035, 8), MX(0, 0.14, 0), '#ffffff']]);
 var tankGeo = new THREE.CylinderGeometry(0.038, 0.038, 0.075, 10); tankGeo.translate(0, 0.04, 0);
 
@@ -560,7 +608,9 @@ function buildVegetation(T, B){
   palms = palms.concat(SW.palms); ST.streetPalms = SW.palms;
   var keepClear = function(p){ for (var i = 0; i < KEEP.length; i++) if (Math.hypot(p.x - KEEP[i][0], p.z - KEEP[i][1]) < KEEP[i][2] * 0.8) return false; return true; };
   palms = palms.filter(keepClear);
-  instChunks(palmGeo, VCM, palms, function(d, it, c){ d.position.set(it.x, it.y - 0.02, it.z); d.rotation.set(it.t, it.a, 0); d.scale.setScalar(it.s); c.set(['#ffffff','#eef6df','#f6f1e2'][(ih(it.x * 3, it.z) * 3) | 0]); });
+  // 3 biến thể dáng dừa (nghiêng, số tàu, quả khác nhau): chọn theo vị trí, mỗi biến thể một lượt instChunks
+  PALM_GEOS.forEach(function(pg, v){
+    instChunks(pg, palmMat, palms.filter(function(it){ return ((ih(it.x * 3, it.z) * 3) | 0) === v; }), function(d, it, c){ d.position.set(it.x, it.y - 0.02, it.z); d.rotation.set(it.t, it.a, 0); d.scale.setScalar(it.s); c.set(['#ffffff','#eef6df','#f6f1e2'][(ih(it.x * 5, it.z * 7) * 3) | 0]); }).forEach(function(m){ m.userData.palm = true; }); });
   var umb = [], lounge = [], UC = ['#f2592c','#3fb6c9','#ffd23f','#ffffff','#ff8fab','#2a9d8f'];
   for (var z = P(12.2600, 0)[1]; z <= P(12.2125, 0)[1]; z += 0.2){ var sec = ih(Math.floor(z / 6), 4); if (sec < 0.25) continue; var x = coastX(z) - 0.42 - ih(z * 13, 1) * 0.42, y = ST.G.hAt(x, z); if (y < 0.08) continue;
     var col = UC[(Math.floor(z / 6) * 7 + 3) % UC.length]; umb.push({ x:x, z:z, y:y, c:col }); lounge.push({ x:x + 0.035, z:z + 0.015, y:y }, { x:x + 0.035, z:z - 0.025, y:y }); }
@@ -635,26 +685,46 @@ function buildTraffic(){
     list.forEach(function(v, i){ v.im = im; v.k = i; v.sc = sc; _c.set(CT[(ih(i, m) * CT.length) | 0]); im.setColorAt(i, _c); all.push(v); }); });
   var pos = new Float32Array(all.length * 6), col = new Float32Array(all.length * 6);
   all.forEach(function(v, i){ col.set([1, 0.93, 0.78, 1, 0.16, 0.12], i * 6); });
-  carPts = glowPoints(pos, col, 0.22); anim.vehicles = { list:all, pos:pos };
+  carPts = glowPoints(pos, col, 0.03); anim.vehicles = { list:all, pos:pos };
   /* train */
   // tàu hoả: 1 đầu máy diesel + 9 toa khách (Kenney Train Kit)
   anim.train = { loco:kitDyn('train-loco', 1), im:kitDyn('train-coach', 9), kl:fitLen('train-loco', 0.56), kc:fitLen('train-coach', 0.56), s:20, dir:1, wait:0 };
 }
 
+// Đèn đường: điểm sáng nhỏ (lampPts) + vệt sáng cam cộng sáng trên mặt đường dưới chân đèn (decal theo instance, không phải đèn thật nên không tốn gì ở shader mặt đất).
+// `big` = đèn đường lớn/cầu/bờ biển (LITE chỉ giữ nhóm này); đường nhỏ OSM và lưới phố ước lượng không có decal ở LITE.
+var poolMat, poolMeshes = [];
 function buildLamps(bridgeLights){
-  var pos = bridgeLights.slice();
-  ST.ROADS_S.forEach(function(R){ R.pts.forEach(function(p, i){ if (i % 2 || p.br || p.cw) return; var s = (i / 2) % 2 ? 1 : -1, off = R.w / 2 + 0.1; pos.push(p.x - p.fz * s * off, p.y + 0.3, p.z + p.fx * s * off); }); });
-  for (var z = P(12.2620, 0)[1]; z <= P(12.2104, 0)[1]; z += 0.9){ var x = coastX(z) - 1.65; pos.push(x, ST.G.hAt(x, z) + 0.28, z); }
+  var pos = [], feet = [];
+  function lamp(x, y, z, h, big){ pos.push(x, y + h, z); if (big || !LITE) feet.push({ x:x, y:y, z:z, big:big }); }
+  for (var bi = 0; bi < bridgeLights.length; bi += 3) lamp(bridgeLights[bi], bridgeLights[bi + 1] - 0.3, bridgeLights[bi + 2], 0.3, true);
+  ST.ROADS_S.forEach(function(R){ R.pts.forEach(function(p, i){ if (i % 2 || p.br || p.cw) return; var s = (i / 2) % 2 ? 1 : -1, off = R.w / 2 + 0.1; lamp(p.x - p.fz * s * off, p.y, p.z + p.fx * s * off, 0.3, true); }); });
+  for (var z = P(12.2620, 0)[1]; z <= P(12.2104, 0)[1]; z += 0.9){ var x = coastX(z) - 1.65, gh = ST.G.hAt(x, z); lamp(x, gh, z, 0.28, true); }
   // có OSM: đèn dọc đường nhỏ thật (cách ~60 m), không rải theo lưới phố ước lượng
   if (OSM) OSM_MINOR.forEach(function(R){ if (R.c > 6) return; var acc = 0.6, Q = R.pts;
     for (var i = 0; i < Q.length - 1; i++){ var dx = Q[i + 1][0] - Q[i][0], dz = Q[i + 1][1] - Q[i][1], L = Math.hypot(dx, dz);
-      while (acc < L){ var t = acc / L, x = Q[i][0] + dx * t - dz / L * (R.w / 2 + 0.06), z = Q[i][1] + dz * t + dx / L * (R.w / 2 + 0.06), y = ST.G.hAt(x, z); if (y > 0.25) pos.push(x, y + 0.24, z); acc += 1.2; }
+      while (acc < L){ var t = acc / L, x = Q[i][0] + dx * t - dz / L * (R.w / 2 + 0.06), z = Q[i][1] + dz * t + dx / L * (R.w / 2 + 0.06), y = ST.G.hAt(x, z); if (y > 0.25) lamp(x, y, z, 0.24, false); acc += 1.2; }
       acc -= L; } });
   if (!OSM) DIST.forEach(function(D){ if (D.style === 'village') return; var us = [], vs = []; D.poly.forEach(function(p){ var l = toLocal(D, p[0], p[1]); us.push(l[0]); vs.push(l[1]); });
     var u0 = Math.min.apply(null, us), u1 = Math.max.apply(null, us), v0 = Math.min.apply(null, vs), v1 = Math.max.apply(null, vs), st = D.style === 'city' ? 1.05 : 1.6;
-    for (var i = Math.ceil(u0 / D.su); i * D.su <= u1; i++) for (var v = v0; v <= v1; v += st){ var w = toWorld(D, i * D.su, v); if (ST.G.zoneAt(w[0], w[1]) === 10 + D.i) pos.push(w[0], ST.G.hAt(w[0], w[1]) + 0.24, w[1]); }
-    for (var j = Math.ceil(v0 / D.sv); j * D.sv <= v1; j++) for (var u = u0; u <= u1; u += st){ var w2 = toWorld(D, u, j * D.sv); if (ST.G.zoneAt(w2[0], w2[1]) === 10 + D.i) pos.push(w2[0], ST.G.hAt(w2[0], w2[1]) + 0.24, w2[1]); } });
-  lampPts = glowPoints(pos, null, 0.5, '#ffcf8a'); }
+    for (var i = Math.ceil(u0 / D.su); i * D.su <= u1; i++) for (var v = v0; v <= v1; v += st){ var w = toWorld(D, i * D.su, v); if (ST.G.zoneAt(w[0], w[1]) === 10 + D.i) lamp(w[0], ST.G.hAt(w[0], w[1]), w[1], 0.24, false); }
+    for (var j = Math.ceil(v0 / D.sv); j * D.sv <= v1; j++) for (var u = u0; u <= u1; u += st){ var w2 = toWorld(D, u, j * D.sv); if (ST.G.zoneAt(w2[0], w2[1]) === 10 + D.i) lamp(w2[0], ST.G.hAt(w2[0], w2[1]), w2[1], 0.24, false); } });
+  lampPts = glowPoints(pos, null, 0.06, '#ffcf8a');
+  // decal: mặt phẳng nằm ngang, cộng sáng, đường kính 0,7 (~35 m, chồng lên khoảng cách đèn 50–60 m); LITE nới 0,9 vì thưa hơn
+  var PD = LITE ? 0.9 : 0.7, pg = new THREE.PlaneGeometry(PD, PD); pg.rotateX(-Math.PI / 2);
+  poolMat = new THREE.MeshBasicMaterial({ map:radialTex('rgba(255,255,255,1)', '', 1.5), color:'#ffa24a', transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending, fog:false, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2 });
+  // mờ dần khi camera xa (12→45 đơn vị): nhìn toàn cảnh 15k vệt chồng nhau sẽ thành màng cam
+  poolMat.onBeforeCompile = function(sh){ sh.vertexShader = sh.vertexShader.replace('void main() {', 'varying float vPoolFade;\nvoid main() {').replace('#include <project_vertex>', '#include <project_vertex>\n\tvPoolFade = 1.0 - smoothstep(12.0, 45.0, -mvPosition.z);');
+    sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'varying float vPoolFade;\nvoid main() {').replace('#include <opaque_fragment>', '#include <opaque_fragment>\n\tgl_FragColor.a *= vPoolFade;'); };
+  poolMat.customProgramCacheKey = function(){ return 'lampPool'; };
+  poolMeshes = instChunks(pg, poolMat, feet, function(d, it, c){ d.position.set(it.x, it.y + 0.02, it.z); d.scale.setScalar(it.big ? 1 : 0.85); c.setRGB(1, 1, 1); }, { cast:false, receive:false, pad:0.5 });
+  poolMeshes.forEach(function(m){ m.renderOrder = 4; m.visible = false; });
+  setLampLight(lampK); }
+// thang sáng của điểm sáng/decal: ban ngày và hoàng hôn sớm = 0 (không còn đốm trắng); bloom, mini map, đèn xe máy vẫn dùng lampK gốc
+function setLampLight(k){ var v = smooth(0.3, 0.75, k);
+  if (lampPts){ lampPts.material.opacity = v; lampPts.visible = v > 0.01; }
+  if (carPts){ carPts.material.opacity = v * 0.9; carPts.visible = v > 0.01; }
+  if (poolMat){ poolMat.opacity = v * 0.45; poolMeshes.forEach(function(m){ m.visible = v > 0.01; }); } }
 
 function buildSky(){
   var cm = new THREE.MeshStandardMaterial({ color:'#ffffff', roughness:1, emissive:'#ffffff', emissiveIntensity:0.2, transparent:true, opacity:0.92 }), cg = new THREE.IcosahedronGeometry(1, 2), rc = mulberry32(11);
@@ -673,7 +743,7 @@ function C(h){ return new THREE.Color(h); }
 var TOD = [
   { top:'#4fb6e6', mid:'#9fdcf0', bot:'#e6f8f3', fog:'#d4eff2', hs:'#e3f6ff', hg:'#93a46a', hi:0.72, sun:'#fff1d6', si:1.35, sp:[0.55, 0.78, 0.3], sh:'#3fc8cf', dp:'#0f5f8c', foam:'#ffffff', sky:'#bfe6f5', cloud:'#ffffff', exp:1.05, lamp:0, glow:0 },
   { top:'#27306a', mid:'#9b5d8f', bot:'#ffad74', fog:'#d9958a', hs:'#9a8fe0', hg:'#3a3550', hi:0.58, sun:'#ffad6b', si:1.1, sp:[-0.8, 0.32, -0.2], sh:'#4aa6b8', dp:'#1b3b6a', foam:'#ffe2cf', sky:'#f3a383', cloud:'#ffcdbd', exp:1.05, lamp:0.75, glow:0.6 },
-  { top:'#070d22', mid:'#132042', bot:'#2a3762', fog:'#141c38', hs:'#5d74b8', hg:'#141826', hi:0.5, sun:'#9fb4ff', si:0.32, sp:[0.3, 0.85, -0.45], sh:'#1d4a66', dp:'#071b33', foam:'#7f93b5', sky:'#22305a', cloud:'#3a4670', exp:1.15, lamp:1, glow:1 }
+  { top:'#070d22', mid:'#132042', bot:'#2a3762', fog:'#141c38', hs:'#5d74b8', hg:'#1a2036', hi:0.6, sun:'#9fb4ff', si:0.32, sp:[0.3, 0.85, -0.45], sh:'#1d4a66', dp:'#071b33', foam:'#7f93b5', sky:'#22305a', cloud:'#3a4670', exp:1.15, lamp:1, glow:1 }
 ].map(function(t){ var o = {}; for (var k in t) o[k] = typeof t[k] === 'string' ? C(t[k]) : t[k]; o.sp = new THREE.Vector3(t.sp[0], t.sp[1], t.sp[2]).normalize(); return o; });
 ST.tod = 0; ST.todTarget = 0; ST.todUser = false; var sunDir = new THREE.Vector3(); var lampK = 0; var _t1 = new THREE.Color(); var _t2 = new THREE.Color(); var _t3 = new THREE.Color();
 function applyTod(k){
@@ -688,7 +758,7 @@ function applyTod(k){
   if (anim.cloudMat){ anim.cloudMat.color.lerpColors(a.cloud, b.cloud, f); anim.cloudMat.emissive.copy(anim.cloudMat.color); }
   if (typeof ST.crowdU !== 'undefined'){ var cl = ST.crowdU.uLight.value; cl.copy(hemi.color).multiplyScalar(hemi.intensity / LIGHT_K * 0.95); _t1.copy(sun.color).multiplyScalar(sun.intensity / LIGHT_K * 0.45); cl.add(_t1); cl.r = Math.max(cl.r, 0.3); cl.g = Math.max(cl.g, 0.33); cl.b = Math.max(cl.b, 0.45); }
   var gk = lerp(a.glow, b.glow, f); glowMats.forEach(function(g){ g.m.emissiveIntensity = g.base + (g.peak - g.base) * gk; });
-  lampK = lerp(a.lamp, b.lamp, f); if (lampPts){ lampPts.material.opacity = lampK; lampPts.visible = lampK > 0.01; } if (carPts){ carPts.material.opacity = lampK * 0.9; carPts.visible = lampK > 0.01; }
+  lampK = lerp(a.lamp, b.lamp, f); setLampLight(lampK);
   if (typeof ST.weatherLight === 'function') ST.weatherLight();
   ST.shadowDirty = true;
 }
