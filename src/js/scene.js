@@ -258,7 +258,7 @@ var canopyGeo = merge([[blobGeo(), MX(0, 0.56, 0, 0, 0, 0, 0.5, 0.42, 0.5), '#ff
 var forestGeo = merge([[blobGeo(), MX(0, 0.3, 0, 0, 0, 0, 0.58, 0.52, 0.58), '#ffffff']]);
 var coneTreeGeo = merge([[new THREE.ConeGeometry(0.34, 1.0, 7), MX(0, 0.62, 0), '#ffffff'], [new THREE.CylinderGeometry(0.04, 0.05, 0.2, 5), MX(0, 0.1, 0), '#7a5a40']]);
 // Cây dừa: thân cong có vòng đốt và phình gốc, cổ ngọn xanh, vài quả dừa, 9–12 tàu lá đặt theo góc vàng (cong rồi rủ ngọn, mép răng cưa, mặt cắt gập chữ V, gân giữa sáng).
-// Tự phát position / normal / color (tuyến tính) và `aSway`: 0 ở gốc thân → 0,35 ở ngọn thân → 1 ở đầu tàu lá (trọng số lay theo gió, chưa dùng ở đây; shader gió nối vào sau).
+// Tự phát position / normal / color (tuyến tính) và `aSway`: 0 ở gốc thân → 0,35 ở ngọn thân → 1 ở đầu tàu lá (trọng số lay theo gió; palmMat = swayMat({ attr:true }) dùng nó).
 // Không dùng merge() (nó phát non-indexed và không có aSway). Chỉ dùng toán thuần, chiều cao tổng ~0,64–0,70 đơn vị (như dừa cũ) nên KEEP và hàng dừa ven biển giữ nguyên.
 // seed 0..2: độ nghiêng thân, số tàu, số quả, tàu vàng úa khác nhau; opt.lite: ít vòng, ít tàu (~240 tam giác thay vì ~430).
 function makePalmGeo(seed, opt){
@@ -306,7 +306,7 @@ function makePalmGeo(seed, opt){
   var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P_, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N_, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(C_, 3));
   g.setAttribute('aSway', new THREE.Float32BufferAttribute(S_, 1)); g.setIndex(IX); g.computeBoundingSphere(); return g; }
 var PALM_GEOS = [0, 1, 2].map(function(k){ return makePalmGeo(k, { lite:LITE }); });
-var palmMat = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.8, side:THREE.DoubleSide });   // vật liệu riêng (VCM dùng chung với dù, thuyền thúng); `aSway` chờ shader gió
+var palmMat = swayMat({ attr:true, amp:0.07, flutter:1, double:true });   // vật liệu riêng (VCM dùng chung với dù, thuyền thúng); lay theo gió bằng thuộc tính đỉnh `aSway` (ngọn lá lay nhiều nhất, tàu lá run rẩy khi giật)
 var umbGeo = merge([[new THREE.CylinderGeometry(0.006, 0.006, 0.13, 4), MX(0, 0.065, 0), '#dddddd'], [new THREE.ConeGeometry(0.085, 0.035, 8), MX(0, 0.14, 0), '#ffffff']]);
 var tankGeo = new THREE.CylinderGeometry(0.038, 0.038, 0.075, 10); tankGeo.translate(0, 0.04, 0);
 
@@ -655,7 +655,7 @@ function buildVegetation(T, B){
   var SW = genStreetTrees(ST.ROADS_S, ST.G, ST.MK); SW.trees.forEach(function(t){ round.push(t); });   // cây ven đường, hàng dừa sát bãi biển (geo.js)
   var TC = ['#5f9e48','#4f9140','#6aa84f','#3f8636','#78ad52','#58923f'], FC = ['#4a8a3c','#3f7d36','#56913f','#467f35','#5a8f3e','#6d9442','#7f9a4a'];
   instChunks(forestGeo, VCM, forest, function(d, it, c){ d.position.set(it.x, it.y - 0.05, it.z); d.rotation.y = it.a; d.scale.set(it.s, it.s * it.sq, it.s); c.set(FC[(ih(it.x * 7, it.z * 3) * FC.length) | 0]); });
-  // cây tán tròn, cây thông, ô bãi biển lay theo gió (swayMat); rừng đồi xa (forestGeo) đứng yên; dừa do palmMat (PR cây dừa) nối swayMat({ attr:true }) sau
+  // cây tán tròn, cây thông, ô bãi biển lay theo gió (swayMat); rừng đồi xa (forestGeo) đứng yên; dừa lay bằng palmMat = swayMat({ attr:true }) (thuộc tính `aSway` của makePalmGeo)
   var swTree = swayMat({ amp:0.1, hRef:0.8 }), swCone = swayMat({ amp:0.07, hRef:1.12 }), swUmb = swayMat({ amp:0.03, hRef:0.16, flutter:1, double:true });
   instChunks(canopyGeo, swTree, round, function(d, it, c){ d.position.set(it.x, it.y - 0.02, it.z); d.rotation.y = it.a; d.scale.setScalar(it.s * 1.5); c.set(TC[(ih(it.x * 5, it.z * 9) * TC.length) | 0]); });
   instChunks(coneTreeGeo, swCone, T.cones, function(d, it, c){ d.position.set(it.x, it.y - 0.05, it.z); d.rotation.y = it.a; d.scale.setScalar(it.s * 1.4); c.set(['#3e7a38','#356f31','#4a8a3e'][(ih(it.x, it.z) * 3) | 0]); });
