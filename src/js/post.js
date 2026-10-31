@@ -33,7 +33,9 @@ function initPost(){
     '  s += abs(lin(vUv + vec2(uPx.x, 0.0)) + lin(vUv - vec2(uPx.x, 0.0)) - 2.0 * d) + abs(lin(vUv + vec2(0.0, uPx.y)) + lin(vUv - vec2(0.0, uPx.y)) - 2.0 * d);   // sai phân bậc hai: mặt phẳng nghiêng (đất sát chân trời) cho 0, chỉ bậc thang độ sâu mới ra viền\n' +
     '  float e = smoothstep(0.035, 0.09, s / d) * uEdge * (1.0 - smoothstep(25.0, 120.0, d)); col = mix(col, col * vec3(0.32, 0.33, 0.38), e); }\n' +
     ' if (uBloom > 0.0) col += max(bl - 0.75, 0.0) * 1.6 * uBloom;\n' +
-    ' gl_FragColor = vec4(srgb(aces(col)), 1.0); }';
+    ' vec3 o = srgb(aces(col));\n' +
+    ' o += (fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5) / 255.0;   // dither nhẹ: bầu trời, quầng đèn ban đêm không còn bậc màu\n' +
+    ' gl_FragColor = vec4(o, 1.0); }';
   function sm(frag, u){ return new THREE.ShaderMaterial({ vertexShader:vs, fragmentShader:frag, uniforms:u, depthTest:false, depthWrite:false }); }
   POST.mats = { blur:sm(blur, { tSrc:{ value:null }, uDir:{ value:new THREE.Vector2() } }),
     fin:sm(fin, { tCol:{ value:POST.rt.texture }, tDep:{ value:POST.rt.depthTexture }, tBlur:{ value:POST.a.texture }, uPx:{ value:new THREE.Vector2() }, uNear:{ value:1 }, uFar:{ value:100 },
