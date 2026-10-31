@@ -5,9 +5,9 @@ import { DP, LITE, LM, LMI, LMP, RESORT_HOTELS, SC, _d, anim, applyTod, buildBoa
 import { buildCrowd } from './crowd.js';
 import { KS, KV, camBlock, PL, PLAY, buildPlayer, followCamera, joy, syncPlayBtns, teleportTo, toggleMount, updatePlayer } from './player.js';
 import { AU, armAudio, honk, setSound, syncSoundBtn, updateAudio } from './audio.js';
-import { initWeather, realTod, sunPos, syncWxBtn, updateWeather } from './weather.js';
+import { initWeather, realTod, setRain, sunPos, syncWxBtn, updateRain, updateWeather } from './weather.js';
 import { buildOcean, setWind, updateOcean } from './ocean.js';
-import { depthFade, waveHeightAt, waveNormalAt, windState } from './ocean-waves.js';
+import { OC, depthFade, waveHeightAt, waveNormalAt, windState } from './ocean-waves.js';
 import { POST, initPost, renderFrame, resizePost } from './post.js';
 import { MM, drawMinimap, initMinimap, showMinimap, updateMinimap } from './minimap.js';
 /* ======================= CONTROLS, UI, LOOP ======================= */
@@ -22,7 +22,7 @@ SC.near = 150; SC.far = 700;
 
 var homeTarget = new THREE.Vector3(-14, 0, -4), homeDist = 400, HOME_PHI = 0.86, HOME_TH = 0.16;
 function computeHome(){ var asp = innerWidth / innerHeight, t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-  homeDist = Math.max(BW * 0.98 / (2 * t * asp), BD * 0.8 / (2 * t)); ST.controls.maxDistance = homeDist * 1.35; scene.fog.near = homeDist * 0.95; scene.fog.far = homeDist * 3.2; }
+  homeDist = Math.max(BW * 0.98 / (2 * t * asp), BD * 0.8 / (2 * t)); ST.controls.maxDistance = homeDist * 1.35; scene.fog.near = ST.fogBase.near = homeDist * 0.95; scene.fog.far = ST.fogBase.far = homeDist * 3.2; }   // fogBase: sương gốc, weather.js thu hẹp khi mưa
 function setCam(target, r, phi, th){ ST.controls.target.copy(target); camera.position.set(target.x + r * Math.sin(phi) * Math.sin(th), target.y + r * Math.cos(phi), target.z + r * Math.sin(phi) * Math.cos(th)); camera.lookAt(target); }
 addEventListener('resize', function(){ renderer.setSize(innerWidth, innerHeight); resizePost(); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); computeHome(); labels.forEach(function(l){ l.w = 0; }); if (PLAY.on) playLook(true); });
 
@@ -283,7 +283,7 @@ function setupPlay(){
 var vp = { x:0, y:0, z:0, fx:0, fz:0 }, _v3 = new THREE.Vector3(), _tan = new THREE.Vector3();
 // đặt vật nổi lên mặt sóng: cao theo sóng, nghiêng theo pháp tuyến sóng (follow = mức nghiêng theo, vật lớn thì nhỏ), quay theo hướng yaw
 var _qN = new THREE.Quaternion(), _qY = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0), _nv = new THREE.Vector3();
-function seaPose(o, x, z, yaw, drop, follow){ var n = waveNormalAt(x, z); _nv.set(n[0] * follow, 1, n[2] * follow).normalize();
+function seaPose(o, x, z, yaw, drop, follow){ var n = waveNormalAt(x, z), fk = follow * (1 + 0.7 * OC.windK); _nv.set(n[0] * fk, 1, n[2] * fk).normalize();   // gió mạnh thì thuyền nghiêng theo mặt sóng nhiều hơn
   _qY.setFromAxisAngle(_up, yaw); o.quaternion.setFromUnitVectors(_up, _nv).multiply(_qY); o.position.set(x, drop + waveHeightAt(x, z), z); }
 function updateAnim(dt, ts){
   var i, b;
@@ -310,7 +310,10 @@ function updateAnim(dt, ts){
   if (anim.birds){ var B = anim.birds; B.list.forEach(function(q, k){ q.a += q.sp * dt; var x = q.cx + Math.cos(q.a) * q.r, z = q.cz + Math.sin(q.a) * q.r; _d.position.set(x, q.h + 0.3 * Math.sin(ts * 0.7 + q.f), z);
       _d.rotation.set(0, Math.atan2(-Math.sin(q.a) * q.sp, Math.cos(q.a) * q.sp) + Math.PI / 2, 0); _d.scale.set(1.3, 0.3 + 1.2 * Math.abs(Math.sin(ts * 7 + q.f)), 1.3); _d.updateMatrix(); B.im.setMatrixAt(k, _d.matrix); });
     B.im.instanceMatrix.needsUpdate = true; }
-  anim.clouds.forEach(function(c){ c.position.x += c.userData.sp * dt; if (c.position.x > BX1 + 40) c.position.x = BX0 - 40; });
+  // mây trôi theo hướng gió thổi tới, nhanh dần theo windK (0,35× lặng gió, ~1× ở 28 km/h như trước, ~2,3× ở 75 km/h)
+  var cto = (OC.from + 180) * Math.PI / 180, cdx = Math.sin(cto), cdz = -Math.cos(cto), cws = 0.35 + 2.0 * OC.windK;
+  anim.clouds.forEach(function(c){ var sp = c.userData.sp * cws * dt; c.position.x += cdx * sp; c.position.z += cdz * sp;
+    if (c.position.x > BX1 + 40) c.position.x = BX0 - 40; else if (c.position.x < BX0 - 40) c.position.x = BX1 + 40; if (c.position.z > BZ1 + 40) c.position.z = BZ0 - 40; else if (c.position.z < BZ0 - 40) c.position.z = BZ1 + 40; });
   var PS = anim.parasail;
   if (PS){ var a = ts * 0.07, bx = PS.c[0] + Math.cos(a) * 3, bz = PS.c[1] + Math.sin(a) * 10, tx = -Math.sin(a) * 3, tz = Math.cos(a) * 10, tl = Math.hypot(tx, tz); tx /= tl; tz /= tl;
     PS.boat.position.set(bx, -0.03, bz); PS.boat.rotation.y = Math.atan2(-tx, -tz);
@@ -366,6 +369,18 @@ function updatePlayerMarker(dist){ if (!PLAY.on || !PL || dist < 0.9){ if (PMK) 
 function updateLocate(dist, ts){ if (!LOC.marker || !LOC.marker.visible) return; var s = Math.max(0.12, dist * 0.011); LOC.marker.scale.setScalar(s);
   var k = (ts * 0.8) % 1, pm = LOC.marker.userData.pulse; pm.scale.setScalar(1 + k * 1.8); pm.material.opacity = 0.55 * (1 - k); }
 
+/* ---------- chip gió: mũi tên (hướng gió thổi tới so với màn hình), km/h, cấp Beaufort, giật; cập nhật mỗi giây từ OC, kể cả khi lái ---------- */
+var windEl = null, windT = 0, windAng = 999;
+function updateWindChip(dt){
+  if (!windEl){ windEl = document.getElementById('windchip'); if (!windEl) return; windEl.arrow = document.getElementById('windArrow'); windEl.kmh = document.getElementById('windKmh'); windEl.bf = document.getElementById('windBf'); windEl.gust = document.getElementById('windGust'); }
+  windT -= dt;
+  if (windT <= 0){ windT = 1; var W = windState(), gp = Math.round(OC.kmh * (1 + OC.gustR)); windEl.hidden = false;
+    windEl.kmh.textContent = Math.round(W.kmh); windEl.bf.textContent = 'cấp ' + W.bf; windEl.gust.textContent = gp > W.kmh * 1.12 + 2 ? 'giật ' + gp : ''; windEl.classList.toggle('strong', W.bf >= 6);
+    windEl.setAttribute('aria-label', 'Gió ' + Math.round(W.kmh) + ' km/h, cấp ' + W.bf + (windEl.gust.textContent ? ', ' + windEl.gust.textContent : '')); }
+  // mũi tên: góc theo chiều kim đồng hồ từ "lên trên màn hình" (hướng nhìn của camera trên mặt phẳng) tới hướng gió thổi tới
+  var az = ST.controls.getAzimuthalAngle(), fx = -Math.sin(az), fz = -Math.cos(az), W2 = windState(), ang = Math.atan2(W2.dx * -fz + W2.dz * fx, W2.dx * fx + W2.dz * fz) * 180 / Math.PI;
+  if (Math.abs(ang - windAng) > 1.5 && windEl.arrow){ windAng = ang; windEl.arrow.style.transform = 'rotate(' + ang.toFixed(0) + 'deg)'; } }
+
 function frame(now){
   requestAnimationFrame(frame);
   var rawDt = clock.getDelta(), dt = Math.min(rawDt, 0.05), ts = clock.elapsedTime * (reduceMotion ? 0.3 : 1); frameN++;
@@ -385,8 +400,8 @@ function frame(now){
   updateShadow(dist);
   updateDetail(PLAY.on && PL ? PL.x : ST.controls.target.x, PLAY.on && PL ? PL.z : ST.controls.target.z, PLAY.on || dist < 55, dist);
   updateMinimap(now || performance.now());
-  renderFrame(dist, dt);
-  updateWeather(dt, ts, dist); updateLabels(dist); updateHud(dist); updateAudio(dt, dist); updateLocate(dist, ts); updatePlayerMarker(dist); governor(rawDt);
+  updateRain(dt, ts); renderFrame(dist, dt);
+  updateWeather(dt, ts, dist); updateWindChip(dt); updateLabels(dist); updateHud(dist); updateAudio(dt, dist); updateLocate(dist, ts); updatePlayerMarker(dist); governor(rawDt);
   if (camShifted){ camera.position.copy(camDes); camShifted = false; }   // trả camera về vị trí mong muốn để điều khiển và cú kéo giữa hai khung không bị lệch
 }
 
@@ -435,7 +450,8 @@ async function build(){
     home:function(){ this.jump(homeTarget, homeDist, HOME_PHI, HOME_TH); },
     setTod:function(n){ ST.todUser = true; ST.WX.real = false; ST.todTarget = ST.tod = n; applyTod(n); syncTimeBtn(); },
     setWx:function(m){ ST.WX.mode = m; syncWxBtn(); updateWeather(2, 0, 100); },
-    KS:KS, KV:KV, GOV:ST.GOV, setNav:function(id){ ST.navTarget = id && LMI[id] ? LMI[id].i : -1; }, minimap:{ draw:function(x, z, az, yaw, tgt, night){ drawMinimap(x, z, az, yaw, tgt, night || 0); }, state:MM }, streetPalms:function(){ return ST.streetPalms; }, setWind:setWind, waves:{ heightAt:waveHeightAt, normalAt:waveNormalAt, windState:windState, depthFade:depthFade }, PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return ST.keys; }, G:ST.G, B:B, T:T, ROADS_S:ST.ROADS_S, RAIL_S:ST.RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:ST.controls, setCam:setCam, audio:AU, gov:ST.GOV, lite:LITE, wx:ST.WX, sunPos:sunPos, lmp:LMP, post:POST, scene:scene, OSM:OSM, inBoard:inBoard };
+    setRain:setRain, setLightning:function(on){ ST.WX.lightning = !!on; }, strike:function(){ ST.strike(); },
+    KS:KS, KV:KV, GOV:ST.GOV, setNav:function(id){ ST.navTarget = id && LMI[id] ? LMI[id].i : -1; }, minimap:{ draw:function(x, z, az, yaw, tgt, night){ drawMinimap(x, z, az, yaw, tgt, night || 0); }, state:MM }, streetPalms:function(){ return ST.streetPalms; }, setWind:setWind, windChip:function(){ windT = 0; updateWindChip(0); return document.getElementById('windchip').textContent; }, waves:{ heightAt:waveHeightAt, normalAt:waveNormalAt, windState:windState, depthFade:depthFade }, PL:PL, enterPlay:enterPlay, toggleMount:toggleMount, keys:function(){ return ST.keys; }, G:ST.G, B:B, T:T, ROADS_S:ST.ROADS_S, RAIL_S:ST.RAIL_S, LM:LM, anim:anim, ground:gcv, renderer:renderer, camera:camera, controls:ST.controls, setCam:setCam, audio:AU, gov:ST.GOV, lite:LITE, wx:ST.WX, sunPos:sunPos, lmp:LMP, post:POST, scene:scene, OSM:OSM, inBoard:inBoard };
   ready = true; loader.hidden = true; requestAnimationFrame(frame);
 }
 build().catch(function(e){ console.error(e); fail('Không dựng được bản đồ: ' + (e && e.message ? e.message : e)); });

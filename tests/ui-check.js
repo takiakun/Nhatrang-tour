@@ -25,6 +25,13 @@ const { chromium } = require('playwright'); const { mount, DIST_TEST } = require
       return { tools, cam:cam && cam.h, bad:bad.slice(0, 5), nbad:bad.length, n, onBtn:at(row).closest('.tool-row') ? 'ok' : at(row).tagName, onTilt:at(box('#tilt')).id, scrollW:document.documentElement.scrollWidth,
         // điểm cố định ngay bên trái la bàn
         left: (() => { const e = document.elementFromPoint(comp.x - 40, comp.y + comp.h / 2); return e ? e.tagName : null; })() }; });
+    // chip gió (#windchip): hiện, không nhận chạm, không đè lên nút, la bàn, thước tỉ lệ
+    const wc = await page.evaluate(() => { const c = document.getElementById('windchip'), b = c.getBoundingClientRect(), cs = getComputedStyle(c); const hit = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
+      const rects = ['.tool-row', '.camctl', '#compass', '#scale', '.brand'].map(s => document.querySelector(s)).filter(Boolean).map(e => e.getBoundingClientRect());
+      const over = rects.some(a => !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top));
+      return { vis:!c.hidden && b.width > 0, pe:cs.pointerEvents, hit:hit && hit.tagName, over, inView:b.right <= innerWidth && b.bottom <= innerHeight, txt:c.textContent.replace(/\s+/g, ' ').trim() }; });
+    const okWc = wc.vis && wc.pe === 'none' && wc.hit === 'CANVAS' && !wc.over && wc.inView && /km\/h/.test(wc.txt) && /cấp/.test(wc.txt);
+    console.log((okWc ? 'OK  ' : 'FAIL') + ' chip gió ' + vp.name, JSON.stringify(wc)); if (!okWc) fail++;
     // vào chế độ lái: giao diện gọn, mini map có hình, ghi nguồn còn truy cập được, vùng trống vẫn chạm xuyên
     await page.tap('#btnPlay'); await page.waitForTimeout(1900);
     const p = await page.evaluate(() => {
@@ -48,6 +55,12 @@ const { chromium } = require('playwright'); const { mount, DIST_TEST } = require
       const fire = (id, type) => document.getElementById(id).dispatchEvent(new PointerEvent(type, { bubbles:true, pointerId:7, pointerType:'touch', clientX:60, clientY:300 }));
       ['joy', 'btnHorn', 'btnCam', 'minimap'].forEach(id => { fire(id, 'pointermove'); fire(id, 'pointerup'); }); window.__nt.THREE && document.querySelector('canvas').dispatchEvent(new PointerEvent('pointermove', { bubbles:true, pointerId:9 }));
       document.removeEventListener('pointermove', h); document.removeEventListener('pointerup', h); return seen; });
+    // chip gió khi lái: vẫn hiện, không đè mini map, đồng hồ tốc độ (hiện tạm để đo), nút điều khiển, joystick, khung ghi nguồn
+    const wp = await page.evaluate(() => { const sp = document.getElementById('speedo'), was = sp.hidden; sp.hidden = false; const c = document.getElementById('windchip'), b = c.getBoundingClientRect(), cs = getComputedStyle(c);
+      const rects = ['#minimap', '#btnInfo', '#speedo', '.play-btns', '#joy', '.tool-row'].map(s => document.querySelector(s)).filter(e => e && getComputedStyle(e).display !== 'none').map(e => e.getBoundingClientRect());
+      const over = rects.some(a => a.width > 0 && !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top)); sp.hidden = was;
+      return { vis:!c.hidden && b.width > 0 && cs.display !== 'none', pe:cs.pointerEvents, over, inView:b.right <= innerWidth && b.bottom <= innerHeight }; });
+    const okWp = wp.vis && wp.pe === 'none' && !wp.over && wp.inView; console.log((okWp ? 'OK  ' : 'FAIL') + ' chip gió khi lái ' + vp.name, JSON.stringify(wp)); if (!okWp) fail++;
     p.leak = leak; const okLeak = Object.keys(leak).every(k => k === 'CANVAS');
     if (!okLeak){ console.log('FAIL rò sự kiện con trỏ', JSON.stringify(leak)); fail++; }
     const okPlay = !p.brand && !p.locate && !p.compass && !p.camctl && p.mini && p.info && p.joy && p.exit === '✕ Thoát' && p.colors > 5 && p.center[0] > 240 && p.center[1] > 90 && p.center[1] < 125 && p.corner[3] === 0

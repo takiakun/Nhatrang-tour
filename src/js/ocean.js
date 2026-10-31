@@ -1,14 +1,16 @@
 import { THREE } from './three.js';
 import { ST } from '../state.js';
 import { BD, BR, BW, BX0, BZ0, clamp } from './geo.js';
-import { LITE, camera, sun, sunDir } from './scene.js';
-import { N_WAVES, OC, WAVE_LAM, oceanStep, setWindOverride, waveScale, windTargetFrom } from './ocean-waves.js';
+import { LITE, camera, reduceMotion, sun, sunDir } from './scene.js';
+import { N_WAVES, OC, WAVE_LAM, oceanStep, setWindOverride, waveScale, windK, windTargetFrom } from './ocean-waves.js';
 /* ======================= BIỂN: sóng Gerstner theo gió, lưới clipmap bám theo camera ======================= */
 // Hình học: các vòng vuông đồng tâm bám theo camera (ô nhỏ nhất ở giữa, mỗi vòng ngoài ô gấp đôi), gộp thành một mesh một lần vẽ.
 // Mỗi đỉnh nhận toạ độ lưới (aRing.xy, đơn vị ô) và cỡ ô (aRing.z); shader tự tính tâm vòng (làm tròn theo ô để lưới không "bơi") rồi dịch đỉnh theo
 // các sóng Gerstner trong bảng ocean-waves.js (cùng bảng CPU dùng cho thuyền, người bơi). Sóng nhỏ tắt dần theo khoảng cách (tránh răng cưa thưa mẫu),
 // mọi sóng tắt dần khi vào cạn (độ sâu từ uDepth) và ở mép bàn bản đồ. Pháp tuyến tính giải tích trong fragment (tầm nhìn xa hơn hình học), cộng thêm
 // hai lớp nhiễu cuộn theo gió; bọt: mép bờ chạy theo pha, mũ bạc (whitecap) ở đỉnh sóng dốc khi gió mạnh; trời phản chiếu theo Fresnel và chói nắng.
+// Gió mạnh (uWK = OC.windK 0..1): mũ bạc dày và rộng hơn, vệt bọt kéo dài theo hướng gió, sương nước ở mép bờ, nước xám hơn. Mưa (uRain): gợn tròn do hạt mưa,
+// nước xám hơn, giảm chói nắng. Pha sóng truyền vào shader là pha tích luỹ OC.ph (mod 2π) nên bước sóng đổi theo gió mà sóng không trượt.
 var M = LITE ? 48 : 64, C0 = LITE ? 0.09 : 0.05;
 var oceanU = null;
 
@@ -42,7 +44,7 @@ function ringGeometry(){
 
 var NW = N_WAVES;
 var GLSL_WAVES = [
-  'uniform float uT;', 'uniform vec4 uWV[' + NW + '];', 'uniform float uOm[' + NW + '];',
+  'uniform float uT;', 'uniform vec4 uWV[' + NW + '];', 'uniform float uPh[' + NW + '];',
   'uniform sampler2D uDepth;', 'uniform vec4 uBox;', 'uniform vec2 uGrid;', 'uniform vec3 uBoard;'   // uBoard: bề rộng/2, sâu/2 trừ bo góc, bán kính bo
 ].join('\n');
 function boardGLSL(){ return 'uniform vec4 uBoardC;\nfloat boardSD(vec2 p){ vec2 q = abs(p - uBoardC.xy) - uBoardC.zw + vec2(uBoard.z); return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - uBoard.z; }\n'; }
@@ -52,7 +54,7 @@ export function buildOcean(){
   for (var k = 0; k < GX * GZ; k++){ data[k * 4] = clamp(((-ST.G.h[k]) + 1) / 7, 0, 1) * 255; data[k * 4 + 1] = ST.G.sea[k] * 255; data[k * 4 + 2] = 0; data[k * 4 + 3] = 255; }
   var dt = new THREE.DataTexture(data, GX, GZ, THREE.RGBAFormat); dt.magFilter = THREE.LinearFilter; dt.minFilter = THREE.LinearFilter; dt.generateMipmaps = false; dt.needsUpdate = true;
   var wv = [], om = []; for (var i = 0; i < NW; i++){ wv.push(new THREE.Vector4()); om.push(0); }
-  oceanU = { uT:{ value:0 }, uWV:{ value:wv }, uOm:{ value:om }, uDepth:{ value:dt }, uBox:{ value:new THREE.Vector4(BX0, BZ0, BW, BD) }, uGrid:{ value:new THREE.Vector2(GX, GZ) },
+  oceanU = { uT:{ value:0 }, uWV:{ value:wv }, uPh:{ value:om }, uWK:{ value:0 }, uRain:{ value:0 }, uGrey:{ value:0 }, uDepth:{ value:dt }, uBox:{ value:new THREE.Vector4(BX0, BZ0, BW, BD) }, uGrid:{ value:new THREE.Vector2(GX, GZ) },
     uBoard:{ value:new THREE.Vector3(0, 0, BR) }, uBoardC:{ value:new THREE.Vector4(BX0 + BW / 2, BZ0 + BD / 2, BW / 2, BD / 2) },
     uM:{ value:M }, uC0:{ value:C0 }, uNoise:{ value:noiseTexture() }, uWind:{ value:new THREE.Vector2(1, 0) }, uDetail:{ value:0.5 }, uCap:{ value:0.9 },
     uShallow:{ value:new THREE.Color('#3fc8cf') }, uDeep:{ value:new THREE.Color('#0f5f8c') }, uFoam:{ value:new THREE.Color('#ffffff') }, uSky:{ value:new THREE.Color('#bfe6f5') },
@@ -71,14 +73,14 @@ export function buildOcean(){
       'float fade = smoothstep(0.05, 1.8, dep0) * smoothstep(0.0, 5.0, -boardSD(base));',
       'float cd = length(base - cameraPosition.xz);',
       'vec3 dsp = vec3(0.0);',
-      'for (int i = 0; i < ' + NW + '; i++){ vec4 w = uWV[i]; float th = w.z * dot(w.xy, base) - uOm[i] * uT; float fd = 1.0 - smoothstep(WLAM[i] * 2.5, WLAM[i] * 5.0, cd);',
+      'for (int i = 0; i < ' + NW + '; i++){ vec4 w = uWV[i]; float th = w.z * dot(w.xy, base) - uPh[i]; float fd = 1.0 - smoothstep(WLAM[i] * 2.5, WLAM[i] * 5.0, cd);',
       '  float cs = cos(th) * w.w * fd; dsp += vec3(w.x * cs, sin(th) * w.w * fd, w.y * cs); }',
       'dsp *= fade;',
       'vBase = base; vCell = aRing.z; vFade = fade;',
       'vec3 transformed = vec3(base.x + dsp.x, dsp.y, base.y + dsp.z);'
     ].join('\n')).replace('#include <common>', '#include <common>\nvarying vec3 vWPos;').replace('#include <project_vertex>', '#include <project_vertex>\nvWPos = transformed;');
     sh.fragmentShader = [
-      'uniform float uT; uniform vec4 uWV[' + NW + ']; uniform float uOm[' + NW + ']; uniform sampler2D uDepth; uniform vec4 uBox; uniform vec2 uGrid; uniform vec3 uBoard; uniform sampler2D uNoise;',
+      'uniform float uT; uniform vec4 uWV[' + NW + ']; uniform float uPh[' + NW + ']; uniform float uWK; uniform float uRain; uniform float uGrey; uniform sampler2D uDepth; uniform vec4 uBox; uniform vec2 uGrid; uniform vec3 uBoard; uniform sampler2D uNoise;',
       'uniform float uM; uniform float uC0; uniform vec2 uWind; uniform float uDetail; uniform float uCap; uniform vec3 uShallow; uniform vec3 uDeep; uniform vec3 uFoam; uniform vec3 uSky;',
       'uniform vec3 uSkyTop; uniform vec3 uSkyHor; uniform vec3 uSunDir; uniform vec3 uSunCol;',
       'varying vec2 vBase; varying float vCell; varying float vFade; varying vec3 vWPos;', boardGLSL(), lamArr, wfdArr, sh.fragmentShader].join('\n')
@@ -93,7 +95,7 @@ export function buildOcean(){
         'vec3 wvec = cameraPosition - vWPos; float wdist = length(wvec); vec3 vd = wvec / wdist;',
         // sóng giải tích (tầm nhìn xa hơn hình học): độ dốc, độ nhô crest
         'vec2 gr = vec2(0.0); float comp = 0.0, hgt = 0.0;',
-        'for (int i = 0; i < ' + NW + '; i++){ vec4 w = uWV[i]; float th = w.z * dot(w.xy, vBase) - uOm[i] * uT; float fd = 1.0 - smoothstep(WFD[i].x, WFD[i].y, wdist);\n' +
+        'for (int i = 0; i < ' + NW + '; i++){ vec4 w = uWV[i]; float th = w.z * dot(w.xy, vBase) - uPh[i]; float fd = 1.0 - smoothstep(WFD[i].x, WFD[i].y, wdist);\n' +
         '  if (i >= 2){ float nz = texture2D(uNoise, vBase * 0.013 + vec2(float(i) * 0.31, 0.17)).b; th += (nz - 0.5) * 4.0; fd *= mix(0.45, 1.25, nz); }',
         '  float wa = w.z * w.w * fd * vFade; gr += w.xy * wa * cos(th); comp += wa * sin(th); hgt += w.w * fd * sin(th); }',
         // lớp nhiễu cuộn theo gió
@@ -101,6 +103,14 @@ export function buildOcean(){
         'vec4 n1 = texture2D(uNoise, wp * 0.31 + uWind * uT * 0.045); vec4 n2 = texture2D(uNoise, wp * 0.93 - uWind.yx * vec2(1.0, -1.0) * uT * 0.07 + 0.37);',
         'float dfade = (1.0 - smoothstep(30.0, 200.0, wdist)) * uDetail * (0.35 + 0.65 * smoothstep(0.05, 0.8, dep));',
         'vec2 dn = ((n1.rg - 0.5) * 1.5 + (n2.rg - 0.5) * 1.0) * dfade;',
+        // gợn tròn do hạt mưa rơi: hai lớp ô lưới 1 m, mỗi ô thỉnh thoảng có một vòng tròn nở ra rồi tắt (chỉ ở gần camera, quá xa chỉ còn nước xám)
+        'if (uRain > 0.02){ float rf0 = (1.0 - smoothstep(1.5, 9.0, wdist)) * uRain * (0.3 + 0.7 * smoothstep(0.1, 0.9, dep)); vec2 rsum = vec2(0.0);',
+        '  for (int q = 0; q < 2; q++){ vec2 rp = vBase * (44.0 + float(q) * 31.0) + float(q) * 17.3; vec2 ci = floor(rp); vec2 cf = fract(rp) - 0.5;',
+        '    float h1 = fract(sin(dot(ci, vec2(12.9898, 78.233))) * 43758.5453); float h2 = fract(h1 * 91.7);',
+        '    float age = fract(uT * (0.7 + h2 * 0.6) + h1 * 7.0); vec2 dv = cf - (vec2(h1, h2) - 0.5) * 0.5; float rr = length(dv);',
+        '    float ring = exp(-pow((rr - age * 0.5) * 16.0, 2.0)) * (1.0 - age) * step(h1, 0.55);',
+        '    rsum += dv / (rr + 0.001) * ring; }',
+        '  dn += rsum * rf0 * 0.9; }',
         'vec3 wn = normalize(vec3(-gr.x - dn.x, max(0.2, 1.0 - comp), -gr.y - dn.y));',
         'float noiseH = n1.b * 0.6 + n2.b * 0.4;',
         // màu nước: nông → sâu, đỉnh sóng sáng hơn (ánh xuyên nước), hõm sóng tối hơn
@@ -112,12 +122,22 @@ export function buildOcean(){
         'float foam = (1.0 - smoothstep(fw * 0.35, fw, dep)) * step(-0.02, dep);',
         'float lines = smoothstep(0.82, 0.97, sin(dep * 16.0 - uT * 2.1 + dot(vBase, uWind) * 0.6)) * (1.0 - smoothstep(0.15, 0.75, dep)) * step(0.0, dep);',
         'foam = clamp(foam + lines * 0.7, 0.0, 1.0) * mix(0.25, 1.0, sea);',
-        'float capK = smoothstep(uCap, uCap + 0.18, comp) * smoothstep(0.35, 0.62, noiseH + (comp - uCap) * 1.4) * (1.0 - smoothstep(60.0, 220.0, wdist));',
-        'foam = max(foam, capK * 0.78);',
+        'float capK = smoothstep(uCap, uCap + 0.18 + 0.2 * uWK, comp) * smoothstep(0.35 - 0.2 * uWK, 0.62 - 0.12 * uWK, noiseH + (comp - uCap) * 1.4) * (1.0 - smoothstep(60.0, 220.0 + 200.0 * uWK, wdist));',
+        'foam = max(foam, capK * (0.78 + 0.2 * uWK));',
+        // vệt bọt kéo dài theo hướng gió (Beaufort ≥ 6): lấy mẫu nhiễu thưa dọc gió, dày ngang gió
+        'if (uWK > 0.3){ vec2 wperp = vec2(-uWind.y, uWind.x); vec2 sp = vec2(dot(vBase, uWind) * 0.09 - uT * 0.05, dot(vBase, wperp) * 0.55); float st = texture2D(uNoise, sp).b * 0.65 + texture2D(uNoise, sp * vec2(2.3, 2.9) + 0.4).b * 0.35;',
+        '  float streak = smoothstep(0.55, 0.78, st) * smoothstep(0.3, 0.9, uWK) * (0.35 + 0.65 * smoothstep(uCap - 0.25, uCap + 0.1, comp)) * (1.0 - smoothstep(120.0, 500.0, wdist)) * smoothstep(0.3, 1.2, dep);',
+        '  foam = max(foam, streak * 0.62); }',
+        // sương nước ở mép bờ khi gió mạnh: dải bọt mờ rộng hơn vệt bọt thường
+        'float mist = (1.0 - smoothstep(0.0, 0.7 + 0.5 * uWK, dep)) * step(0.0, dep) * smoothstep(0.35, 0.9, uWK) * (0.55 + 0.45 * n1.b) * (1.0 - smoothstep(40.0, 250.0, wdist));',
+        'foam = max(foam, mist * 0.5);',
         // Fresnel: phản chiếu trời
         'vec3 rf = reflect(-vd, wn); float fres = pow(1.0 - clamp(dot(wn, vd), 0.0, 1.0), 5.0);',
         'vec3 skyC = mix(uSkyHor, uSkyTop, smoothstep(0.0, 0.7, rf.y)); skyC = mix(skyC, uSky, 0.35);',
-        'diffuseColor.rgb = mix(diffuseColor.rgb, skyC, clamp(fres * 0.6 + 0.03, 0.0, 0.7));',
+        // gió mạnh, mưa: nước xám, đục hơn, phản chiếu trời giảm
+        'vec3 greyW = vec3(dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11))) * vec3(0.92, 1.0, 1.02) + vec3(0.02, 0.03, 0.035);',
+        'diffuseColor.rgb = mix(diffuseColor.rgb, greyW, uGrey * 0.75);',
+        'diffuseColor.rgb = mix(diffuseColor.rgb, skyC, clamp(fres * 0.6 + 0.03, 0.0, 0.7) * (1.0 - 0.35 * uGrey));',
         'diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, foam * 0.85);',
         'diffuseColor.a = max(diffuseColor.a, max(foam, fres * 0.6) * 0.92);'
       ].join('\n'))
@@ -127,26 +147,32 @@ export function buildOcean(){
       ].join('\n'))
       .replace('#include <emissivemap_fragment>', [
         '#include <emissivemap_fragment>',
-        'totalEmissiveRadiance += uSunCol * pow(max(dot(rf, uSunDir), 0.0), 260.0) * 1.7 * (1.0 - foam) * smoothstep(0.1, 1.2, dep);'
+        'totalEmissiveRadiance += uSunCol * pow(max(dot(rf, uSunDir), 0.0), 260.0) * 1.7 * (1.0 - foam) * smoothstep(0.1, 1.2, dep) * (1.0 - 0.8 * uRain);'
       ].join('\n'));
   };
-  wm.customProgramCacheKey = function(){ return 'ocean-' + M; };
+  wm.customProgramCacheKey = function(){ return 'ocean2-' + M; };
   var m = new THREE.Mesh(ringGeometry(), wm); m.frustumCulled = false; m.receiveShadow = true; m.renderOrder = 2; ST.oceanU = oceanU;
   OC.depthFn = function(x, z){ return -ST.G.hAt(x, z); };
   // gió ép bằng URL: ?wind=<km/h>&wdir=<độ thổi từ>
-  try { var qs = new URLSearchParams(location.search), w = parseFloat(qs.get('wind')), d = parseFloat(qs.get('wdir')); if (isFinite(w) || isFinite(d)) setWindOverride(isFinite(w) ? w : 14, isFinite(d) ? d : 45); } catch (e){}
+  // ?gust=<km/h> ép giật tối đa (mặc định gió ×1,3)
+  try { var qs = new URLSearchParams(location.search), w = parseFloat(qs.get('wind')), d = parseFloat(qs.get('wdir')), gs = parseFloat(qs.get('gust'));
+    if (isFinite(w) || isFinite(d) || isFinite(gs)) setWindOverride(isFinite(w) ? w : (isFinite(gs) ? Math.round(gs / 1.3) : 14), isFinite(d) ? d : 45, isFinite(gs) ? gs : null); } catch (e){}
   oceanTarget(); oceanStep(0, oceanTarget(), true); return m; }
 
 function oceanTarget(){ return windTargetFrom(ST.WX, new Date()); }
 // đặt ngay gió (kiểm thử, chụp ảnh); kmh == null để bỏ ép
-export function setWind(kmh, from){ setWindOverride(kmh, from); oceanStep(0, oceanTarget(), true); }
+export function setWind(kmh, from, gust){ setWindOverride(kmh, from, gust); oceanStep(0, oceanTarget(), true); }
 // gọi mỗi khung từ frame()
 export function updateOcean(dt){
   if (!oceanU) return; oceanStep(dt, oceanTarget());
-  var wv = oceanU.uWV.value, om = oceanU.uOm.value; for (var i = 0; i < NW; i++){ wv[i].set(OC.dir[i * 2], OC.dir[i * 2 + 1], OC.k[i], OC.amp[i]); om[i] = OC.om[i]; }
+  var wv = oceanU.uWV.value, ph = oceanU.uPh.value; for (var i = 0; i < NW; i++){ wv[i].set(OC.dir[i * 2], OC.dir[i * 2 + 1], OC.k[i], OC.amp[i]); ph[i] = OC.ph[i] % (2 * Math.PI); }   // pha mod 2π: float32 trong shader không mất độ chính xác khi chạy lâu
   oceanU.uT.value = OC.t;
+  // cây, ô lay theo gió (scene.js swayMat): hướng thổi tới × cường độ tức thời (gồm cơn giật), thời gian lay là đồng hồ sóng
+  var swU = ST.swayU, wkn = windK(OC.kmhNow) * (reduceMotion ? 0.4 : 1), toS = (OC.from + 180) * Math.PI / 180; swU.uT.value = OC.t % 3000; swU.uWind.value.set(Math.sin(toS) * wkn, -Math.cos(toS) * wkn); swU.uG.value = OC.gust;
   var to = (OC.from + 180) * Math.PI / 180; oceanU.uWind.value.set(Math.sin(to), -Math.cos(to));
-  var g = clamp(OC.kmh / 32, 0, 1.3); oceanU.uDetail.value = 0.35 + 0.65 * Math.min(g, 1); oceanU.uCap.value = 0.7 - 0.4 * Math.min(g, 1.2) + 0.28 * (1 - Math.min(g, 1));
+  var g = clamp(OC.kmh / 32, 0, 1.3), rain = ST.WX && ST.WX.k ? ST.WX.k.rain : 0;
+  oceanU.uDetail.value = 0.35 + 0.65 * Math.min(g, 1); oceanU.uCap.value = 0.7 - 0.4 * Math.min(g, 1.2) + 0.28 * (1 - Math.min(g, 1)) - 0.12 * OC.windK;
+  oceanU.uWK.value = OC.windK; oceanU.uRain.value = rain; oceanU.uGrey.value = clamp(0.5 * OC.windK + 0.55 * rain, 0, 0.85);
   oceanU.uSunDir.value.copy(sunDir); oceanU.uSunCol.value.copy(sun.color).multiplyScalar(clamp(sun.intensity / Math.PI, 0, 1.4)); }
 // bảng màu theo giờ trong ngày (applyTod gọi)
 ST.oceanTod = function(a, b, f){ if (!oceanU) return;

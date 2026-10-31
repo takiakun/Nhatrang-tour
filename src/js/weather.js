@@ -1,13 +1,16 @@
 import { THREE } from './three.js';
 import { ST } from '../state.js';
 import { clamp, mulberry32 } from './geo.js';
-import { anim, applyTod, hemi, renderer, scene, stage, sun, sunDir } from './scene.js';
+import { LITE, anim, applyTod, camera, hemi, renderer, scene, setWet, stage, sun, sunDir } from './scene.js';
 import { PLAY } from './player.js';
+import { thunder } from './audio.js';
+import { OC } from './ocean-waves.js';
+import { LIGHTNING_LEN, lightningFlash, lightningGap, rainBoxScale, rainCount, rainFog, rainFromWeather, rainVelocity, stormK, thunderDelay, wetStep, wetTarget } from './weather-math.js';
 /* ======================= GIỜ THẬT & THỜI TIẾT THẬT ======================= */
 // Chế độ "Giờ thật": vị trí mặt trời tính theo giờ hiện tại ở Nha Trang (công thức thiên văn rút gọn của NOAA),
 // từ đó chọn sáng / hoàng hôn / đêm và hướng nắng, bóng đổ. Thời tiết lấy từ Open-Meteo (miễn phí, không cần khoá):
 // mây, mưa, gió. Không tải được (ví dụ khi đăng làm Claude artifact, mạng bị chặn) thì trời quang, không có lỗi.
-ST.WX = { real:true, ok:false, cloud:0.3, rain:0, wind:3, windDeg:null, temp:null, code:null, k:{ cloud:0.3, rain:0 }, next:0, sunEl:45, sunAz:120 };
+ST.WX = { real:true, ok:false, cloud:0.3, rain:0, wind:3, windDeg:null, gust:null, temp:null, code:null, rainOv:null, lightning:true, k:{ cloud:0.3, rain:0 }, next:0, sunEl:45, sunAz:120 };
 var WX_LAT = 12.24, WX_LON = 109.19;
 // chế độ thời tiết người dùng chọn: 'real' theo Open-Meteo, 'sun' trời nắng, 'rain' mưa (lưu trong localStorage)
 var WX_MODES = ['real', 'sun', 'rain'], WX_MODE_NAMES = { real:'Thời tiết thật', sun:'Trời nắng', rain:'Trời mưa' };
@@ -38,47 +41,123 @@ var WX_NAMES = { 0:'Trời quang', 1:'Ít mây', 2:'Mây rải rác', 3:'Nhiều
   80:'Mưa rào', 81:'Mưa rào', 82:'Mưa rào to', 95:'Dông', 96:'Dông', 99:'Dông' };
 function fetchWeather(){
   if (!window.fetch) return;
-  var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + WX_LAT + '&longitude=' + WX_LON + '&current=temperature_2m,cloud_cover,precipitation,rain,wind_speed_10m,wind_direction_10m,weather_code&timezone=Asia%2FHo_Chi_Minh';
+  var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + WX_LAT + '&longitude=' + WX_LON + '&current=temperature_2m,cloud_cover,precipitation,rain,showers,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code&timezone=Asia%2FHo_Chi_Minh';
   fetch(url).then(function(r){ return r.ok ? r.json() : null; }).then(function(j){ var c = j && j.current; if (!c) return;
-    ST.WX.ok = true; ST.WX.cloud = clamp((c.cloud_cover || 0) / 100, 0, 1); ST.WX.rain = clamp((c.precipitation || c.rain || 0) / 4, 0, 1); ST.WX.wind = c.wind_speed_10m || 0; ST.WX.windDeg = c.wind_direction_10m == null ? null : c.wind_direction_10m; ST.WX.temp = c.temperature_2m; ST.WX.code = c.weather_code;
-    if (ST.WX.rain === 0 && ST.WX.code >= 51 && ST.WX.code <= 99 && ST.WX.code !== 71) ST.WX.rain = 0.25;
+    ST.WX.ok = true; ST.WX.cloud = clamp((c.cloud_cover || 0) / 100, 0, 1); ST.WX.wind = c.wind_speed_10m || 0; ST.WX.windDeg = c.wind_direction_10m == null ? null : c.wind_direction_10m; ST.WX.temp = c.temperature_2m; ST.WX.code = c.weather_code;
+    ST.WX.gust = c.wind_gusts_10m == null ? null : c.wind_gusts_10m;
+    ST.WX.rain = rainFromWeather(Math.max(c.precipitation || 0, c.rain || 0, c.showers || 0), ST.WX.code);   // mm/h → 0..1, có sàn theo weather_code (weather-math.js)
     syncWeatherChip(); }).catch(function(){});
 }
 function syncWeatherChip(){ var el = document.getElementById('wx'); if (!el) return;
   if (!ST.WX.ok){ el.hidden = true; return; } el.hidden = false;
-  el.textContent = (ST.WX.temp != null ? Math.round(ST.WX.temp) + '°C · ' : '') + (WX_NAMES[ST.WX.code] || (ST.WX.cloud > 0.6 ? 'Nhiều mây' : 'Trời đẹp')) + ' · gió ' + Math.round(ST.WX.wind) + ' km/h'; }
+  el.textContent = (ST.WX.temp != null ? Math.round(ST.WX.temp) + '°C · ' : '') + (WX_NAMES[ST.WX.code] || (ST.WX.cloud > 0.6 ? 'Nhiều mây' : 'Trời đẹp')); }   // gió có chip riêng (#windchip, theo OC) nên không lặp ở đây
 
-// mưa: lớp canvas 2D phủ lên khung cảnh (vạch mưa xiên + phủ xám nhẹ). Vạch 3D chỉ rộng 1 px nên gần như không thấy trên điện thoại.
-function buildRain(){ var c = document.createElement('canvas'); c.id = 'rain'; c.setAttribute('aria-hidden', 'true'); stage.parentNode.insertBefore(c, stage.nextSibling);
-  var rr = mulberry32(77), drops = []; for (var i = 0; i < 260; i++) drops.push({ x:rr(), y:rr(), l:0.5 + rr(), v:0.8 + rr() * 0.5 });
-  ST.WX.rainCv = c; ST.WX.drops = drops; }
-function drawRain(dt, k, near){ var c = ST.WX.rainCv; if (!c) return; var on = k > 0.02 && near > 0.05;
-  if (!on){ if (c.style.display !== 'none'){ c.style.display = 'none'; } return; }
-  var dpr = Math.min(devicePixelRatio || 1, 2), W = innerWidth, Hh = innerHeight; if (c.width !== Math.round(W * dpr)){ c.width = Math.round(W * dpr); c.height = Math.round(Hh * dpr); }
-  c.style.display = 'block'; var x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, W, Hh);
-  x.fillStyle = 'rgba(70,84,98,' + (0.18 * k * near).toFixed(3) + ')'; x.fillRect(0, 0, W, Hh);
-  var n = Math.round(ST.WX.drops.length * Math.min(1, k * 1.3)), L = Hh * 0.045, sl = 0.18;
-  x.strokeStyle = 'rgba(225,235,245,' + (0.55 * near).toFixed(3) + ')'; x.lineWidth = 1.3; x.beginPath();
-  for (var i = 0; i < n; i++){ var d = ST.WX.drops[i]; d.y += dt * d.v * 1.6; d.x -= dt * d.v * 1.6 * sl * Hh / W; if (d.y > 1){ d.y -= 1.1; d.x = (d.x + 0.37) % 1; } if (d.x < 0) d.x += 1;
-    var px = d.x * W, py = d.y * Hh, ll = L * d.l; x.moveTo(px, py); x.lineTo(px - ll * sl, py + ll); }
-  x.stroke(); }
+/* ---------- mưa 3D ---------- */
+// Vệt mưa nằm trong cảnh: InstancedBufferGeometry, mỗi vệt là một quad quay về camera, kéo dài theo vận tốc tương đối (mưa − camera). Mọi chuyển động nằm trong
+// vertex shader: vị trí cố định trong thế giới, trôi theo vận tốc mưa rồi cuộn vòng (mod) trong một hộp quanh camera nên không cần cập nhật từng vệt.
+// Ba lớp: xa (mảnh, mờ, hộp lớn), vừa, gần (dày, sáng, hộp nhỏ). Hộp ~20 m khi camera sát đất (0,4 đơn vị), to dần theo khoảng cách camera
+// (rainBoxScale) kèm tốc độ và độ dài vệt nhân theo, nên nhìn từ xa vẫn thấy mưa với cùng số vệt. Tâm hộp nằm trên trục nhìn của camera (lớp xa ở ~0,8× khoảng cách tới
+// tâm nhìn, lớp gần ở 0,3×) để vệt luôn trong khung hình. Bề rộng tối thiểu ~1,3 px trên màn hình, mảnh hơn thì mờ bớt (không dưới 50%).
+var RN = { mesh:null, n:0, camPrev:new THREE.Vector3(), vel:new THREE.Vector3(), has:false };
+var RU = { uCam:{ value:new THREE.Vector3() }, uFwd:{ value:new THREE.Vector3(0, 0, -1) }, uS:{ value:0.4 }, uD:{ value:0.2 }, uVel:{ value:new THREE.Vector3(0, -0.3, 0) }, uCamVel:{ value:new THREE.Vector3() },
+  uT:{ value:0 }, uPx:{ value:0.001 }, uLen:{ value:0.06 }, uCol:{ value:new THREE.Color('#dfe9f2') }, uAlpha:{ value:0.5 } };
+var RAIN_VS = [
+  'uniform vec3 uCam; uniform vec3 uFwd; uniform float uS; uniform float uD; uniform vec3 uVel; uniform vec3 uCamVel; uniform float uT; uniform float uPx; uniform float uLen;',
+  'attribute vec2 aQ; attribute vec4 aR; varying vec2 vQ; varying float vA;',
+  'void main(){',
+  '  float tier = aR.w; float ts = step(0.5, tier) + step(0.85, tier);',                       // 0 xa, 1 vừa, 2 gần
+  '  float bs = uS * (ts < 0.5 ? 1.0 : (ts < 1.5 ? 0.6 : 0.3));',
+  '  float sp = (ts < 0.5 ? 0.9 : (ts < 1.5 ? 1.0 : 1.12)) * (0.92 + 0.16 * fract(tier * 37.0));',
+  '  vec3 v = uVel * sp;',
+  '  vec3 c = uCam + uFwd * uD * (ts < 0.5 ? 1.0 : (ts < 1.5 ? 0.6 : 0.3));',                    // tâm hộp trên trục nhìn: lớp gần sát camera, lớp xa tới gần điểm nhìn
+  '  vec3 w = aR.xyz * bs + v * uT;',
+  '  vec3 rel = mod(w - c + 0.5 * bs, bs) - 0.5 * bs;',
+  '  vec3 head = c + rel;',
+  '  float edge = max(max(abs(rel.x), abs(rel.y)), abs(rel.z)) / bs;',
+  '  vec3 vr = v - uCamVel; float vl = max(length(vr), 1e-5); vec3 tail = head - vr / vl * (vl * uLen);',
+  '  vec3 vh = (viewMatrix * vec4(head, 1.0)).xyz; vec3 vt = (viewMatrix * vec4(tail, 1.0)).xyz;',
+  '  vec3 cr = cross(vt - vh, vh); float cl = length(cr); vec3 lat = cl > 1e-9 ? cr / cl : vec3(1.0, 0.0, 0.0);',
+  '  float depth = max(-vh.z, 0.001);',
+  '  float w0 = 0.00022 * (uS / 0.4) * (ts < 0.5 ? 0.7 : (ts < 1.5 ? 1.0 : 1.7));',
+  '  float wid = max(w0, uPx * depth * 1.3);',
+  '  vec3 vp = mix(vt, vh, aQ.y) + lat * aQ.x * wid * mix(0.45, 1.0, aQ.y);',
+  '  vQ = aQ;',
+  '  vA = (1.0 - smoothstep(0.38, 0.5, edge)) * clamp(w0 / wid, 0.5, 1.0) * (ts < 0.5 ? 0.6 : (ts < 1.5 ? 0.85 : 1.0)) * smoothstep(0.005, 0.04, depth / (uS / 0.4));',
+  '  gl_Position = projectionMatrix * vec4(vp, 1.0);',
+  '}'].join('\n');
+var RAIN_FS = ['uniform vec3 uCol; uniform float uAlpha; varying vec2 vQ; varying float vA;',
+  'void main(){ float e = 1.0 - abs(vQ.x); float a = e * e * mix(0.12, 1.0, vQ.y) * vA * uAlpha; if (a < 0.004) discard;',
+  '  gl_FragColor = vec4(uCol, a);',
+  '  #include <tonemapping_fragment>',
+  '  #include <colorspace_fragment>',
+  '}'].join('\n');
+function buildRain(){
+  // lớp phủ tối nền (và nháy sáng khi có sét): thẻ div, không còn canvas vẽ vạch 2D
+  var c = document.createElement('div'); c.id = 'rain'; c.setAttribute('aria-hidden', 'true'); stage.parentNode.insertBefore(c, stage.nextSibling); ST.WX.rainEl = c;
+  var N = LITE ? 500 : 1400, rr = mulberry32(77), R = new Float32Array(N * 4); for (var i = 0; i < N * 4; i++) R[i] = rr();
+  var g = new THREE.InstancedBufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3)); g.setAttribute('aQ', new THREE.BufferAttribute(new Float32Array([-1, 0, 1, 0, 1, 1, -1, 1]), 2));
+  g.setIndex(new THREE.BufferAttribute(new Uint16Array([0, 1, 2, 0, 2, 3]), 1)); g.setAttribute('aR', new THREE.InstancedBufferAttribute(R, 4)); g.instanceCount = N;
+  var m = new THREE.ShaderMaterial({ uniforms:RU, vertexShader:RAIN_VS, fragmentShader:RAIN_FS, transparent:true, depthWrite:false, side:THREE.DoubleSide, fog:false });
+  var mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 6; mesh.visible = false; scene.add(mesh); RN.mesh = mesh; RN.n = N; ST.rainMesh = mesh; }
+// gọi mỗi khung TRƯỚC khi vẽ (camera đã ở vị trí cuối): số vệt theo cường độ mưa, hộp theo khoảng cách camera, vận tốc mưa theo gió và giật, màu theo sương
+function updateRain(dt, ts){
+  var m = RN.mesh; if (!m) return; var k = ST.WX.k.rain, cnt = rainCount(RN.n, k);
+  if (cnt === 0){ m.visible = false; RN.has = false; return; }
+  var cp = camera.position, dist = cp.distanceTo(ST.controls.target), S = rainBoxScale(dist);
+  if (RN.has && dt > 0 && dt < 0.5){ _rv.copy(cp).sub(RN.camPrev).divideScalar(dt); if (_rv.length() > 3) _rv.setLength(3); RN.vel.lerp(_rv, Math.min(1, dt * 8)); } else RN.vel.set(0, 0, 0);
+  RN.camPrev.copy(cp); RN.has = true;
+  var to = (OC.from + 180) * Math.PI / 180, v = rainVelocity(OC.kmh, Math.sin(to), -Math.cos(to), OC.gust, S / 0.4);
+  m.visible = true; m.geometry.instanceCount = cnt; camera.getWorldDirection(_fw);
+  RU.uCam.value.copy(cp); RU.uFwd.value.copy(_fw); RU.uS.value = S; RU.uD.value = Math.max(dist * 0.8, S * 0.5); RU.uVel.value.set(v[0], v[1], v[2]); RU.uCamVel.value.copy(RN.vel).multiplyScalar(0.35 * Math.min(1, 0.4 / S + 0.2));
+  RU.uT.value = ts % 1000; RU.uPx.value = 2 * Math.tan(camera.fov * Math.PI / 360) / Math.max(1, innerHeight * renderer.getPixelRatio());
+  RU.uCol.value.copy(scene.fog.color).multiplyScalar(1.2).addScalar(0.1 + LN.flash * 0.5); RU.uAlpha.value = (0.35 + 0.45 * k) * (1 + LN.flash); }
+var _rv = new THREE.Vector3(), _fw = new THREE.Vector3();
 
-function initWeather(){ buildRain(); syncWxBtn(); var b = document.getElementById('btnWx'); if (b) b.addEventListener('click', function(){ setWxMode(WX_MODES[(WX_MODES.indexOf(ST.WX.mode) + 1) % WX_MODES.length]); });
+/* ---------- sét và sấm ---------- */
+// mức dông: chế độ mưa 0,5 (thỉnh thoảng có sét), thật thì theo mưa to / mã dông; sét làm hemi và lớp phủ nháy sáng hai lần (~0,3 s), sấm đến sau vài giây (audio.js)
+var LN = { t:-1, next:15, flash:0, added:0, rng:mulberry32(9137), storm:0 };
+function updateLightning(dt, k){
+  var W = ST.WX, storm = W.rainOv != null ? stormK(W.rainOv) : (W.mode === 'rain' ? 0.5 : (W.mode === 'sun' ? 0 : stormK(W.rain, W.code))); LN.storm = k.rain > 0.5 ? storm : 0;
+  if (!W.lightning) LN.storm = 0;
+  if (LN.t < 0){ LN.next -= dt; if (LN.next <= 0 && LN.storm > 0.01){ LN.t = 0; LN.next = lightningGap(LN.storm, LN.rng());
+      if (typeof thunder === 'function') thunder(thunderDelay(LN.rng()), 0.35 + 0.65 * LN.storm); }
+    else if (LN.storm <= 0.01 && LN.next < 8) LN.next = 8 + LN.rng() * 10; }   // chưa có dông: chờ vài giây rồi mới có sét đầu tiên khi dông bắt đầu
+  var f = 0; if (LN.t >= 0){ f = lightningFlash(LN.t); LN.t += dt; if (LN.t > LIGHTNING_LEN){ LN.t = -1; f = 0; } }
+  LN.flash = f; var add = f * 3.4; hemi.intensity += add - LN.added; LN.added = add; }
+ST.strike = function(){ LN.t = 0; LN.next = 20; thunder(0.4, 0.8); };   // thử: __nt.strike()
+
+function initWeather(){ buildRain(); syncWxBtn();
+  try { var rq = parseFloat(new URLSearchParams(location.search).get('rain')); if (isFinite(rq)) ST.WX.rainOv = clamp(rq, 0, 1); } catch (e){}   // ?rain=<0..1> ép cường độ mưa (thử, chụp ảnh) var b = document.getElementById('btnWx'); if (b) b.addEventListener('click', function(){ setWxMode(WX_MODES[(WX_MODES.indexOf(ST.WX.mode) + 1) % WX_MODES.length]); });
   fetchWeather(); setInterval(fetchWeather, 15 * 60 * 1000); }
 // Gọi ở cuối applyTod(): chỉnh ánh sáng theo mây/mưa và hướng nắng thật (applyTod luôn đặt lại giá trị gốc nên không bị cộng dồn)
 function weatherLight(){ var k = ST.WX.k, dim = clamp(k.cloud * 0.35 + k.rain * 0.45, 0, 0.75);
-  sun.intensity *= 1 - dim; hemi.intensity *= 1 + dim * 0.25; scene.fog.color.lerp(_wxGrey, k.rain * 0.45); renderer.toneMappingExposure *= 1 - k.rain * 0.15;
+  sun.intensity *= 1 - dim; hemi.intensity *= 1 + dim * 0.25; scene.fog.color.lerp(_wxGrey, k.rain * 0.65); renderer.toneMappingExposure *= 1 - k.rain * 0.15; LN.added = 0;   // applyTod vừa đặt lại hemi nên bỏ phần nháy sét đã cộng
   if (anim.cloudMat){ anim.cloudMat.color.multiplyScalar(1 - (k.cloud * 0.35 + k.rain * 0.3) * 0.5); anim.cloudMat.emissive.copy(anim.cloudMat.color); }
+  ST.wetSky.value.copy(scene.fog.color).multiplyScalar(0.9).addScalar(0.05);   // vũng nước phản chiếu màu trời xám (≈ màu sương)
   realSunDir(); }
 ST.weatherLight = weatherLight;
-var wxT = 0, _wxGrey = new THREE.Color('#9aa5ad');
-// gọi mỗi khung từ frame(): làm mượt mây/mưa, ẩn bớt mây khi trời quang, mưa quanh camera; mỗi giây áp lại ánh sáng; chế độ giờ thật đổi todTarget
+var wxT = 0, _wxGrey = new THREE.Color('#9aa5ad'), skyRain = 0, wetApplied = 0, tintKey = '';
+// gọi mỗi khung từ frame(): làm mượt mây/mưa, độ ướt, sương, sét; ẩn bớt mây khi trời quang; mỗi giây áp lại ánh sáng; chế độ giờ thật đổi todTarget.
+// dt >= 1 là cú đặt ngay (hook __nt.setWx / setRain): mọi thứ nhảy thẳng tới đích thay vì nội suy
 function updateWeather(dt, ts, dist){
-  var k = ST.WX.k, a = Math.min(1, dt * 0.5), tc = ST.WX.mode === 'rain' ? 0.9 : (ST.WX.mode === 'sun' ? 0.15 : (ST.WX.ok ? ST.WX.cloud : 0.3)), tr = ST.WX.mode === 'rain' ? 0.75 : (ST.WX.mode === 'sun' ? 0 : ST.WX.rain);
+  var W = ST.WX, k = W.k, snap = dt >= 1, a = Math.min(1, dt * 0.5), tc = W.mode === 'rain' ? 0.9 : (W.mode === 'sun' ? 0.15 : (W.ok ? W.cloud : 0.3)),
+    tr = W.rainOv != null ? W.rainOv : (W.mode === 'rain' ? 0.8 : (W.mode === 'sun' ? 0 : W.rain));
+  if (W.rainOv != null) tc = Math.max(tc, 0.25 + 0.65 * W.rainOv);
   k.cloud += (tc - k.cloud) * a; k.rain += (tr - k.rain) * a;
-  wxT -= dt; if (wxT <= 0){ wxT = 1; if (ST.WX.real) ST.todTarget = realTod(); if (Math.abs(ST.tod - ST.todTarget) <= 0.003) applyTod(ST.tod);
+  var wv = snap ? wetTarget(k.rain) : wetStep(ST.wetU.value, wetTarget(k.rain), dt);   // ướt lên trong ~10 s, khô trong ~40 s
+  ST.wetU.value = wv; if (Math.abs(wv - wetApplied) > 0.02 || (wv < 0.001 && wetApplied > 0) || (wv > 0.999 && wetApplied < 1)){ wetApplied = wv; setWet(wv); }
+  // sương dày dần khi mưa; nền trời xám dần (applyTod vẽ lại khi mưa đổi > 0,02)
+  var ff = rainFog(ST.fogBase, k.rain, dist); scene.fog.near = ff.near; scene.fog.far = ff.far;
+  var redraw = Math.abs(k.rain - skyRain) > 0.02 || (k.rain < 0.005 && skyRain > 0); if (redraw){ skyRain = k.rain; applyTod(ST.tod); }
+  wxT -= dt; if (wxT <= 0){ wxT = 1; if (W.real) ST.todTarget = realTod(); if (Math.abs(ST.tod - ST.todTarget) <= 0.003 && !redraw) applyTod(ST.tod);
     anim.clouds.forEach(function(c, i){ c.visible = i / anim.clouds.length < 0.25 + k.cloud * 0.85; }); }
-  drawRain(dt, k.rain, PLAY.on ? 1 : clamp(1.4 - dist / 120, 0, 1));
+  updateLightning(dt, k);
+  // lớp phủ: xám nhẹ khi mưa, trắng xanh khi có sét (chỉ ghi DOM khi giá trị đổi)
+  var el = W.rainEl; if (el){ var near = PLAY.on ? 1 : clamp(1.4 - dist / 120, 0, 1), tint = 0.16 * k.rain * near, fl = LN.flash * 0.55, key = fl > 0.01 ? 'f' + fl.toFixed(2) : 't' + tint.toFixed(3);
+    if (key !== tintKey){ tintKey = key; if (fl > 0.01){ el.style.display = 'block'; el.style.background = 'rgba(225,232,255,' + fl.toFixed(3) + ')'; } else if (tint > 0.004){ el.style.display = 'block'; el.style.background = 'rgba(70,84,98,' + tint.toFixed(3) + ')'; } else el.style.display = 'none'; } }
 }
+// đặt ngay cường độ mưa 0..1 (null: bỏ ép), cho thử và chụp ảnh
+function setRain(v){ ST.WX.rainOv = v == null ? null : clamp(v, 0, 1); updateWeather(2, 0, camera.position.distanceTo(ST.controls.target)); }
 
-export { initWeather, realTod, sunPos, syncWxBtn, updateWeather };
+export { initWeather, realTod, setRain, sunPos, syncWxBtn, updateRain, updateWeather };

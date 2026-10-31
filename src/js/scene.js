@@ -31,6 +31,7 @@ var reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 var scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xd4eff2, 400, 1300);
+ST.fogBase = { near:400, far:1300 };   // cận/xa sương gốc; weather.js thu hẹp lại khi mưa (rainFog)
 var camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.5, 4000);
 // r155+ bỏ chế độ ánh sáng cũ (legacy), nơi cường độ bị nhân π: nhân LIGHT_K = π để giữ nguyên độ sáng đã chỉnh cho r147
 var LIGHT_K = Math.PI;
@@ -43,10 +44,10 @@ var SC = sun.shadow.camera; SC.near = 1; SC.far = 900;
 scene.add(sun); scene.add(sun.target);
 
 /* ---------- material & geometry helpers ---------- */
-var matCache = {}, glowMats = [];
+var matCache = {}, glowMats = [], wetMats = [];
 function mat(color, extra){ var key = color + (extra ? JSON.stringify(extra) : ''); if (matCache[key]) return matCache[key];
   var o = { color:color, roughness:0.82, metalness:0 }; if (extra) for (var k in extra) o[k] = extra[k];
-  return (matCache[key] = new THREE.MeshStandardMaterial(o)); }
+  return (matCache[key] = wetReg(new THREE.MeshStandardMaterial(o))); }
 function lowMat(c, s){ return (typeof c === 'string' && s <= 8) ? mat(c, { flatShading:true }) : c; }
 function mesh(geo, c, extra){ var m = new THREE.Mesh(geo, typeof c === 'string' ? mat(c, extra) : c); m.castShadow = true; m.receiveShadow = true; return m; }
 function box(w, h, d, c){ return mesh(new THREE.BoxGeometry(w, h, d), c); }
@@ -54,7 +55,7 @@ function cyl(rt, rb, h, s, c){ return mesh(new THREE.CylinderGeometry(rt, rb, h,
 function cone(r, h, s, c){ return mesh(new THREE.ConeGeometry(r, h, s), lowMat(c, s)); }
 function sph(r, c, ws, hs){ return mesh(new THREE.SphereGeometry(r, ws || 12, hs || 8), c); }
 function at(o, x, y, z){ o.position.set(x, y, z); return o; }
-function glowMat(color, emissive, base, peak){ var m = new THREE.MeshStandardMaterial({ color:color, roughness:0.7, emissive:emissive, emissiveIntensity:base }); glowMats.push({ m:m, base:base, peak:peak }); return m; }
+function glowMat(color, emissive, base, peak){ var m = new THREE.MeshStandardMaterial({ color:color, roughness:0.7, emissive:emissive, emissiveIntensity:base }); glowMats.push({ m:m, base:base, peak:peak }); return wetReg(m); }
 function prism(w, h, len, c){ var s = new THREE.Shape(); s.moveTo(-w / 2, 0); s.lineTo(w / 2, 0); s.lineTo(0, h); s.closePath(); var geo = new THREE.ExtrudeGeometry(s, { depth:len, bevelEnabled:false }); geo.translate(0, 0, -len / 2); return mesh(geo, mat(c, { flatShading:true })); }
 function beam(a, b, r, c){ var dir = new THREE.Vector3().subVectors(b, a), len = dir.length(), m = cyl(r, r, len, 5, c); m.position.copy(a).addScaledVector(dir, 0.5); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize()); return m; }
 function MX(x, y, z, rx, ry, rz, sx, sy, sz){ if (sx == null) sx = 1; if (sy == null) sy = sx; if (sz == null) sz = sx;
@@ -64,8 +65,48 @@ function merge(parts){ var P_ = [], N_ = [], C_ = [];
     for (var i = 0; i < a.count; i++){ P_.push(a.getX(i), a.getY(i), a.getZ(i)); N_.push(n.getX(i), n.getY(i), n.getZ(i)); C_.push(c.r, c.g, c.b); } });
   var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P_, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N_, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(C_, 3)); g.computeBoundingSphere(); return g; }
 function blobGeo(){ var g = new THREE.IcosahedronGeometry(1, 0), p = g.attributes.position, n = g.attributes.normal, v = new THREE.Vector3(); for (var i = 0; i < p.count; i++){ v.set(p.getX(i), p.getY(i), p.getZ(i)).normalize(); n.setXYZ(i, v.x, v.y, v.z); } return g; }
-var VCM = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.8 });
-var VCM2 = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.85, side:THREE.DoubleSide });
+var VCM = wetReg(new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.8 }));
+var VCM2 = wetReg(new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.85, side:THREE.DoubleSide }));
+
+/* ---------- ướt (mưa) và lay theo gió: uniform dùng chung ---------- */
+// ST.wetU: độ ướt 0..1 (weather.js ghi: lên ~10 s, khô ~40 s). Địa hình đọc thẳng trong shader (tối đi, vũng nước, phản chiếu trời giả);
+// vật liệu nhà, cây, xe chỉ chỉnh màu (tối đi ≤ 16%) và độ nhám (≤ 30%) qua setWet(), gọi khi độ ướt đổi > 0,02, không biên dịch lại shader.
+ST.wetU = { value:0 }; ST.wetSky = { value:new THREE.Color(0.5, 0.55, 0.6) };   // wetSky: màu trời phản chiếu trong vũng nước (weather.js cập nhật theo sương)
+function wetReg(m){ wetMats.push({ m:m, c:null, r:0 }); return m; }   // màu, độ nhám gốc lấy lúc setWet đầu tiên (kitMat... còn chỉnh sau khi tạo)
+function setWet(w){ for (var i = 0; i < wetMats.length; i++){ var e = wetMats[i]; if (!e.c){ e.c = e.m.color.clone(); e.r = e.m.roughness; } e.m.roughness = e.r * (1 - 0.3 * w); e.m.color.copy(e.c).multiplyScalar(1 - 0.16 * w); } }
+// ST.swayU: thời gian lay, gió (hướng thổi tới × cường độ tức thời gồm cả giật; độ dài ≈ windK), cơn giật 0..1. ui.js ghi mỗi khung từ OC.
+// swayMat({ amp, hRef, attr, flutter, double }) = MeshStandardMaterial vertexColors, đỉnh nghiêng theo gió sau phép biến đổi instance (không cần sửa hình):
+//   amp = độ lệch tối đa của ngọn (đơn vị bản đồ) khi windK = 1; hRef = độ cao hình gốc để trọng số = (y/hRef)² (gốc đứng yên, ngọn lay nhiều nhất);
+//   attr = true thì trọng số lấy từ thuộc tính đỉnh `aSway` (0 gốc → 1 ngọn lá) của geometry thay vì theo độ cao (cho cây dừa); flutter > 0 thêm run rẩy khi giật (ô, lá).
+// Một chương trình shader dùng chung cho mọi swayMat cùng kiểu (amp, hRef là uniform riêng từng vật liệu). Bóng đổ không lay theo (depth material riêng, chênh nhỏ).
+ST.swayU = { uT:{ value:0 }, uWind:{ value:new THREE.Vector2() }, uG:{ value:0 } };
+var SWAY_VS = `
+vec4 mvPosition = vec4( transformed, 1.0 );
+vec2 swO_ = vec2( 0.0 );
+#ifdef USE_INSTANCING
+  mvPosition = instanceMatrix * mvPosition; swO_ = instanceMatrix[3].xz;
+#endif
+#ifdef SWAY_ATTR
+  float swW_ = aSway;
+#else
+  float swW_ = clamp( position.y / uSwH, 0.0, 1.0 ); swW_ *= swW_;
+#endif
+float swPh_ = swO_.x * 7.3 + swO_.y * 5.1;
+float swV_ = sin( uSwT * 1.9 + swPh_ ) * 0.55 + sin( uSwT * 3.3 + swPh_ * 1.7 ) * 0.45 + uSwG * 0.5 * sin( uSwT * 8.0 + swPh_ * 2.0 );
+float swA_ = length( uSwWind );
+vec2 swD_ = uSwWind / max( swA_, 1e-4 );
+float swL_ = swA_ * ( 0.55 + 0.45 * swV_ );
+mvPosition.xz += ( swD_ * swL_ + vec2( -swD_.y, swD_.x ) * swV_ * swA_ * 0.25 ) * uSwAmp * swW_;
+mvPosition.y += ( swV_ * swA_ * uSwFl * 0.35 - swL_ * swL_ * 0.2 ) * uSwAmp * swW_;
+mvPosition = modelViewMatrix * mvPosition;
+gl_Position = projectionMatrix * mvPosition;`;
+function swayMat(o){ o = o || {}; var attr = !!o.attr, uAmp = { value:o.amp || 0.08 }, uH = { value:o.hRef || 1 }, uFl = { value:o.flutter || 0 };
+  var m = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:o.roughness || 0.8, side:o.double ? THREE.DoubleSide : THREE.FrontSide });
+  m.onBeforeCompile = function(sh){ var U = ST.swayU; sh.uniforms.uSwT = U.uT; sh.uniforms.uSwWind = U.uWind; sh.uniforms.uSwG = U.uG; sh.uniforms.uSwAmp = uAmp; sh.uniforms.uSwH = uH; sh.uniforms.uSwFl = uFl;
+    sh.vertexShader = (attr ? '#define SWAY_ATTR\nattribute float aSway;\n' : '') + 'uniform float uSwT; uniform vec2 uSwWind; uniform float uSwG; uniform float uSwAmp; uniform float uSwH; uniform float uSwFl;\n' + sh.vertexShader.replace('#include <project_vertex>', SWAY_VS); };
+  m.customProgramCacheKey = function(){ return 'sway1' + (attr ? 'a' : ''); };
+  return wetReg(m); }
+ST.swayMat = swayMat;
 
 /* ---------- mô hình Kenney (dữ liệu trong models.js) ---------- */
 // Geometry chuẩn hoá: chân đế x, z ∈ [−0.5, 0.5], y ∈ [0, 1] => đặt bằng scale (rộng, cao, sâu) như khối hộp.
@@ -217,7 +258,7 @@ var canopyGeo = merge([[blobGeo(), MX(0, 0.56, 0, 0, 0, 0, 0.5, 0.42, 0.5), '#ff
 var forestGeo = merge([[blobGeo(), MX(0, 0.3, 0, 0, 0, 0, 0.58, 0.52, 0.58), '#ffffff']]);
 var coneTreeGeo = merge([[new THREE.ConeGeometry(0.34, 1.0, 7), MX(0, 0.62, 0), '#ffffff'], [new THREE.CylinderGeometry(0.04, 0.05, 0.2, 5), MX(0, 0.1, 0), '#7a5a40']]);
 // Cây dừa: thân cong có vòng đốt và phình gốc, cổ ngọn xanh, vài quả dừa, 9–12 tàu lá đặt theo góc vàng (cong rồi rủ ngọn, mép răng cưa, mặt cắt gập chữ V, gân giữa sáng).
-// Tự phát position / normal / color (tuyến tính) và `aSway`: 0 ở gốc thân → 0,35 ở ngọn thân → 1 ở đầu tàu lá (trọng số lay theo gió, chưa dùng ở đây; shader gió nối vào sau).
+// Tự phát position / normal / color (tuyến tính) và `aSway`: 0 ở gốc thân → 0,35 ở ngọn thân → 1 ở đầu tàu lá (trọng số lay theo gió; palmMat = swayMat({ attr:true }) dùng nó).
 // Không dùng merge() (nó phát non-indexed và không có aSway). Chỉ dùng toán thuần, chiều cao tổng ~0,64–0,70 đơn vị (như dừa cũ) nên KEEP và hàng dừa ven biển giữ nguyên.
 // seed 0..2: độ nghiêng thân, số tàu, số quả, tàu vàng úa khác nhau; opt.lite: ít vòng, ít tàu (~240 tam giác thay vì ~430).
 function makePalmGeo(seed, opt){
@@ -265,7 +306,7 @@ function makePalmGeo(seed, opt){
   var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P_, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N_, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(C_, 3));
   g.setAttribute('aSway', new THREE.Float32BufferAttribute(S_, 1)); g.setIndex(IX); g.computeBoundingSphere(); return g; }
 var PALM_GEOS = [0, 1, 2].map(function(k){ return makePalmGeo(k, { lite:LITE }); });
-var palmMat = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.8, side:THREE.DoubleSide });   // vật liệu riêng (VCM dùng chung với dù, thuyền thúng); `aSway` chờ shader gió
+var palmMat = swayMat({ attr:true, amp:0.07, flutter:1, double:true });   // vật liệu riêng (VCM dùng chung với dù, thuyền thúng); lay theo gió bằng thuộc tính đỉnh `aSway` (ngọn lá lay nhiều nhất, tàu lá run rẩy khi giật)
 var umbGeo = merge([[new THREE.CylinderGeometry(0.006, 0.006, 0.13, 4), MX(0, 0.065, 0), '#dddddd'], [new THREE.ConeGeometry(0.085, 0.035, 8), MX(0, 0.14, 0), '#ffffff']]);
 var tankGeo = new THREE.CylinderGeometry(0.038, 0.038, 0.075, 10); tankGeo.translate(0, 0.04, 0);
 
@@ -283,7 +324,7 @@ function boxUV(uRep, vRep, blankSides){ var g = new THREE.BoxGeometry(1, 1, 1); 
   for (var f = 0; f < 6; f++) for (var k = 0; k < 4; k++){ var i = f * 4 + k;
     if (f === 2 || f === 3 || (blankSides && (f === 0 || f === 1))) uv.setXY(i, 0.01, 0.995); else uv.setXY(i, uv.getX(i) * uRep, uv.getY(i) * vRep); }
   uv.needsUpdate = true; return g; }
-function bmat(t, peak){ var m = new THREE.MeshStandardMaterial({ color:'#ffffff', map:t.map, emissiveMap:t.emis, emissive:'#ffffff', emissiveIntensity:0, roughness:0.75 }); glowMats.push({ m:m, base:0, peak:peak }); return m; }
+function bmat(t, peak){ var m = new THREE.MeshStandardMaterial({ color:'#ffffff', map:t.map, emissiveMap:t.emis, emissive:'#ffffff', emissiveIntensity:0, roughness:0.75 }); glowMats.push({ m:m, base:0, peak:peak }); return wetReg(m); }
 
 /* ======================= BUILD ======================= */
 /* trong ST: G, groundTex, terrain, water, MK, ring */ ST.ROADS_S = []; ST.RAIL_S = null; var KEEP = []; var LM = []; var LMI = {}; var pickGroups = []; var anim = { boats:[], movers:[], gondolas:[], birds:null, clouds:[], wheel:null, train:null, parasail:null, vehicles:null };
@@ -394,9 +435,17 @@ function buildTerrain(){
   for (j = 0; j < GZ - 1; j++) for (i = 0; i < GX - 1; i++){ var a = j * GX + i, b = a + 1, c2 = a + GX, d = c2 + 1; idx[q++] = a; idx[q++] = c2; idx[q++] = b; idx[q++] = b; idx[q++] = c2; idx[q++] = d; }
   var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(new THREE.BufferAttribute(idx, 1)); g.computeVertexNormals();
   var tm = new THREE.MeshStandardMaterial({ map:ST.groundTex, roughness:0.95, metalness:0 });
-  tm.onBeforeCompile = function(sh){ sh.uniforms.uDetail = DU.tex; sh.uniforms.uDBox = DU.box; sh.uniforms.uDOn = DU.on;
-    sh.vertexShader = 'varying vec2 vWXZ;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvWXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
-    sh.fragmentShader = 'uniform sampler2D uDetail;\nuniform vec4 uDBox;\nuniform float uDOn;\nvarying vec2 vWXZ;\n' + sh.fragmentShader.replace('#include <map_fragment>', [
+  // Ướt (ST.wetU, 0..1): mặt đất tối đi ~28%, vũng nước ở chỗ phẳng và thấp (nhiễu giá trị theo toạ độ thế giới): độ nhám thấp + phản chiếu trời giả kiểu Fresnel (ST.wetSky)
+  tm.onBeforeCompile = function(sh){ sh.uniforms.uDetail = DU.tex; sh.uniforms.uDBox = DU.box; sh.uniforms.uDOn = DU.on; sh.uniforms.uWet = ST.wetU; sh.uniforms.uWetSky = ST.wetSky;
+    sh.vertexShader = 'varying vec2 vWXZ;\nvarying float vWY;\nvarying float vWNy;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvWXZ = (modelMatrix * vec4(transformed, 1.0)).xz; vWY = transformed.y; vWNy = (modelMatrix * vec4(normal, 0.0)).y;');
+    sh.fragmentShader = ['uniform sampler2D uDetail;\nuniform vec4 uDBox;\nuniform float uDOn;\nuniform float uWet;\nuniform vec3 uWetSky;\nvarying vec2 vWXZ;\nvarying float vWY;\nvarying float vWNy;',
+      'float wHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
+      'float wNoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(wHash(i), wHash(i + vec2(1.0, 0.0)), f.x), mix(wHash(i + vec2(0.0, 1.0)), wHash(i + vec2(1.0, 1.0)), f.x), f.y); }'].join('\n') + '\n' + sh.fragmentShader
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor * (1.0 - 0.35 * uWet), 0.06, puddle_);')
+      .replace('#include <emissivemap_fragment>', ['#include <emissivemap_fragment>',
+      '{ float fr_ = 0.16 + 0.84 * pow(1.0 - clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0), 4.0); totalEmissiveRadiance += uWetSky * fr_ * puddle_ * 0.8; }'].join('\n'))
+      .replace('#include <map_fragment>', [
+      'float puddle_ = 0.0;',
       '#ifdef USE_MAP',
       '  vec4 sampledDiffuseColor = texture2D( map, vMapUv );',
       '  vec2 dq = (vWXZ - uDBox.xy) / uDBox.zw;',
@@ -405,7 +454,13 @@ function buildTerrain(){
       '    sampledDiffuseColor = mix(sampledDiffuseColor, texture2D(uDetail, dq), smoothstep(0.0, 0.07, de));',
       '  }',
       '  diffuseColor *= sampledDiffuseColor;',
-      '#endif'].join('\n')); };
+      '#endif',
+      'if (uWet > 0.001){',
+      '  float pn_ = wNoise(vWXZ * 14.0) * 0.55 + wNoise(vWXZ * 37.0 + 3.1) * 0.45;',   // vũng ~3–7 m
+      '  puddle_ = smoothstep(0.6 - 0.12 * uWet, 0.78 - 0.06 * uWet, pn_) * smoothstep(0.25, 0.65, uWet) * smoothstep(0.86, 0.97, vWNy) * (1.0 - smoothstep(0.7, 1.5, vWY));',   // pháp tuyến đỉnh nội suy nên ngưỡng dốc phải mềm (hẹp quá hiện ra hình tam giác ô lưới)
+      '  diffuseColor.rgb *= 1.0 - 0.26 * uWet - 0.14 * puddle_;',
+      '}'].join('\n')); };
+  tm.customProgramCacheKey = function(){ return 'terrain-wet'; };
   var m = new THREE.Mesh(g, tm); m.receiveShadow = true; m.castShadow = true; scene.add(m); return m; }
 
 /* ---------- high-resolution ground patch that follows the camera / player ---------- */
@@ -600,8 +655,10 @@ function buildVegetation(T, B){
   var SW = genStreetTrees(ST.ROADS_S, ST.G, ST.MK); SW.trees.forEach(function(t){ round.push(t); });   // cây ven đường, hàng dừa sát bãi biển (geo.js)
   var TC = ['#5f9e48','#4f9140','#6aa84f','#3f8636','#78ad52','#58923f'], FC = ['#4a8a3c','#3f7d36','#56913f','#467f35','#5a8f3e','#6d9442','#7f9a4a'];
   instChunks(forestGeo, VCM, forest, function(d, it, c){ d.position.set(it.x, it.y - 0.05, it.z); d.rotation.y = it.a; d.scale.set(it.s, it.s * it.sq, it.s); c.set(FC[(ih(it.x * 7, it.z * 3) * FC.length) | 0]); });
-  instChunks(canopyGeo, VCM, round, function(d, it, c){ d.position.set(it.x, it.y - 0.02, it.z); d.rotation.y = it.a; d.scale.setScalar(it.s * 1.5); c.set(TC[(ih(it.x * 5, it.z * 9) * TC.length) | 0]); });
-  instChunks(coneTreeGeo, VCM, T.cones, function(d, it, c){ d.position.set(it.x, it.y - 0.05, it.z); d.rotation.y = it.a; d.scale.setScalar(it.s * 1.4); c.set(['#3e7a38','#356f31','#4a8a3e'][(ih(it.x, it.z) * 3) | 0]); });
+  // cây tán tròn, cây thông, ô bãi biển lay theo gió (swayMat); rừng đồi xa (forestGeo) đứng yên; dừa lay bằng palmMat = swayMat({ attr:true }) (thuộc tính `aSway` của makePalmGeo)
+  var swTree = swayMat({ amp:0.1, hRef:0.8 }), swCone = swayMat({ amp:0.07, hRef:1.12 }), swUmb = swayMat({ amp:0.03, hRef:0.16, flutter:1, double:true });
+  instChunks(canopyGeo, swTree, round, function(d, it, c){ d.position.set(it.x, it.y - 0.02, it.z); d.rotation.y = it.a; d.scale.setScalar(it.s * 1.5); c.set(TC[(ih(it.x * 5, it.z * 9) * TC.length) | 0]); });
+  instChunks(coneTreeGeo, swCone, T.cones, function(d, it, c){ d.position.set(it.x, it.y - 0.05, it.z); d.rotation.y = it.a; d.scale.setScalar(it.s * 1.4); c.set(['#3e7a38','#356f31','#4a8a3e'][(ih(it.x, it.z) * 3) | 0]); });
   var palms = T.palms.slice();
   ROUNDS.forEach(function(o, k){ var ir = o.r - o.w / 2; if (ir < 0.22) return; var y = ST.G.hAt(o.x, o.z), n = ir > 0.5 ? 4 : 2;   // cây cọ trên đảo bùng binh
     palms.push({ x:o.x, z:o.z, y:y, s:0.9, a:k, t:0.05 }); for (var i = 0; i < n; i++){ var a = i / n * 6.283 + k; palms.push({ x:o.x + Math.cos(a) * ir * 0.5, z:o.z + Math.sin(a) * ir * 0.5, y:y, s:0.75, a:a, t:0.1 }); } });
@@ -614,7 +671,7 @@ function buildVegetation(T, B){
   var umb = [], lounge = [], UC = ['#f2592c','#3fb6c9','#ffd23f','#ffffff','#ff8fab','#2a9d8f'];
   for (var z = P(12.2600, 0)[1]; z <= P(12.2125, 0)[1]; z += 0.2){ var sec = ih(Math.floor(z / 6), 4); if (sec < 0.25) continue; var x = coastX(z) - 0.42 - ih(z * 13, 1) * 0.42, y = ST.G.hAt(x, z); if (y < 0.08) continue;
     var col = UC[(Math.floor(z / 6) * 7 + 3) % UC.length]; umb.push({ x:x, z:z, y:y, c:col }); lounge.push({ x:x + 0.035, z:z + 0.015, y:y }, { x:x + 0.035, z:z - 0.025, y:y }); }
-  instChunks(umbGeo, VCM, umb, function(d, it, c){ d.position.set(it.x, it.y, it.z); d.scale.setScalar(0.5); c.set(it.c); }, { cast:true });   // ô cao ~4 m (thật 2,2 m; ×1,6 thế giới ≈ 3,5 m)
+  instChunks(umbGeo, swUmb, umb, function(d, it, c){ d.position.set(it.x, it.y, it.z); d.scale.setScalar(0.5); c.set(it.c); }, { cast:true });   // ô cao ~4 m (thật 2,2 m; ×1,6 thế giới ≈ 3,5 m)
   var lg = new THREE.BoxGeometry(0.045, 0.01, 0.0175); lg.translate(0, 0.01, 0);
   instChunks(lg, mat('#fbfbf7'), lounge, function(d, it){ d.position.set(it.x, it.y, it.z); }, { cast:false });
 }
@@ -745,10 +802,12 @@ var TOD = [
   { top:'#27306a', mid:'#9b5d8f', bot:'#ffad74', fog:'#d9958a', hs:'#9a8fe0', hg:'#3a3550', hi:0.58, sun:'#ffad6b', si:1.1, sp:[-0.8, 0.32, -0.2], sh:'#4aa6b8', dp:'#1b3b6a', foam:'#ffe2cf', sky:'#f3a383', cloud:'#ffcdbd', exp:1.05, lamp:0.75, glow:0.6 },
   { top:'#070d22', mid:'#132042', bot:'#2a3762', fog:'#141c38', hs:'#5d74b8', hg:'#1a2036', hi:0.6, sun:'#9fb4ff', si:0.32, sp:[0.3, 0.85, -0.45], sh:'#1d4a66', dp:'#071b33', foam:'#7f93b5', sky:'#22305a', cloud:'#3a4670', exp:1.15, lamp:1, glow:1 }
 ].map(function(t){ var o = {}; for (var k in t) o[k] = typeof t[k] === 'string' ? C(t[k]) : t[k]; o.sp = new THREE.Vector3(t.sp[0], t.sp[1], t.sp[2]).normalize(); return o; });
-ST.tod = 0; ST.todTarget = 0; ST.todUser = false; var sunDir = new THREE.Vector3(); var lampK = 0; var _t1 = new THREE.Color(); var _t2 = new THREE.Color(); var _t3 = new THREE.Color();
+ST.tod = 0; ST.todTarget = 0; ST.todUser = false; var sunDir = new THREE.Vector3(); var lampK = 0; var _t1 = new THREE.Color(); var _t2 = new THREE.Color(); var _t3 = new THREE.Color(); var _tg = new THREE.Color();
 function applyTod(k){
   var i = k <= 1 ? 0 : 1, f = k - i, a = TOD[i], b = TOD[i + 1];
   _t1.lerpColors(a.top, b.top, f); _t2.lerpColors(a.mid, b.mid, f); _t3.lerpColors(a.bot, b.bot, f);
+  var rk = ST.WX && ST.WX.k ? ST.WX.k.rain : 0;   // mưa: ba màu nền trời xám dần (giữ độ sáng từng màu, tối đi ~20%), nối với sương xám ở weatherLight
+  if (rk > 0.01){ [_t1, _t2, _t3].forEach(function(c){ var l = (c.r * 0.3 + c.g * 0.59 + c.b * 0.11) * (1 - 0.2 * rk); _tg.setRGB(l * 0.97, l, l * 1.04); c.lerp(_tg, 0.78 * rk); }); }
   stage.style.background = 'linear-gradient(180deg,#' + _t1.getHexString() + ' 0%,#' + _t2.getHexString() + ' 55%,#' + _t3.getHexString() + ' 100%)';
   scene.fog.color.lerpColors(a.fog, b.fog, f);
   hemi.color.lerpColors(a.hs, b.hs, f); hemi.groundColor.lerpColors(a.hg, b.hg, f); hemi.intensity = lerp(a.hi, b.hi, f) * LIGHT_K;
@@ -763,4 +822,4 @@ function applyTod(k){
   ST.shadowDirty = true;
 }
 
-export { DP, JETTIES, LITE, LM, LMI, LMP, RESORT_HOTELS, SC, _d, anim, applyTod, b64arr, box, buildBoats, buildBridges, buildCable, buildCity, buildLamps, buildLandmarks, buildResort, buildSkirt, buildSky, buildTerrain, buildTraffic, buildVegetation, camera, carPts, cyl, drawOverlays, fail, glowMat, gy, hemi, initDetail, lampK, loader, mat, osmMajorRoads, pickGroups, radialTex, reduceMotion, renderer, roadPoint, sampleRoad, scene, stage, step, sun, sunDir, updateDetail };
+export { setWet, DP, JETTIES, LITE, LM, LMI, LMP, RESORT_HOTELS, SC, _d, anim, applyTod, b64arr, box, buildBoats, buildBridges, buildCable, buildCity, buildLamps, buildLandmarks, buildResort, buildSkirt, buildSky, buildTerrain, buildTraffic, buildVegetation, camera, carPts, cyl, drawOverlays, fail, glowMat, gy, hemi, initDetail, lampK, loader, mat, osmMajorRoads, pickGroups, radialTex, reduceMotion, renderer, roadPoint, sampleRoad, scene, stage, step, sun, sunDir, updateDetail };

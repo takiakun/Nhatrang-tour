@@ -1,5 +1,5 @@
 import { THREE } from './three.js';
-import { waveHeightAt } from './ocean-waves.js';
+import { OC, waveHeightAt, waveNormalAt } from './ocean-waves.js';
 import { ST } from '../state.js';
 import { OSM, clamp, coastX, inBoard } from './geo.js';
 import { DP, JETTIES, LMP, b64arr, box, camera, cyl, glowMat, lampK, mat, radialTex, scene } from './scene.js';
@@ -189,7 +189,8 @@ function animKenney(dt){ var K = PL.ch.k; if (!K) return; var want = 'idle', ts 
   K.model.rotation.x = PL.mode === 'swim' ? 1.35 : 0; K.model.position.z = PL.mode === 'swim' ? -1.2 : 0;
   K.mixer.update(dt); }
 function placeBikeIdle(){ var b = PL.bike, g = groundAt(b.x, b.z); PL.bk.root.position.set(b.x, g.y, b.z); PL.bk.root.rotation.set(0, b.yaw, 0.12, 'YXZ'); }
-function placeChar(dt, sp){ var C = PL.ch; C.root.position.set(PL.x, PL.y, PL.z); C.root.rotation.set(0, PL.yaw, 0); }
+function placeChar(dt, sp){ var C = PL.ch; C.root.position.set(PL.x, PL.y, PL.z); C.root.rotation.set(0, PL.yaw, 0);
+  if (PL.mode === 'swim'){ var n = waveNormalAt(PL.x, PL.z), k = 0.7 + 1.1 * OC.windK; C.root.rotation.set(n[2] * k, PL.yaw, -n[0] * k); } }   // người bơi nghiêng theo mặt sóng, gió mạnh thì lắc nhiều hơn
 
 var _f = { x:0, z:0 };
 function setMsg(t){ var el = document.getElementById('playMsg'); if (!el) return; el.textContent = t; el.hidden = !t; PL.msgT = t ? 2.6 : 0; }
