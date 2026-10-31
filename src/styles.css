@@ -210,7 +210,8 @@ body.playing .speedo{bottom:auto;top:calc(72px + env(safe-area-inset-top,0px))}
 .windchip svg{width:20px;height:20px;flex:none;color:var(--accent)}
 .windchip b{font-size:15px;color:var(--ink)}
 .windchip small{font-size:11px;font-weight:600}
-.windchip .wc-gust:empty{display:none}
+.windchip .wc-gust:empty,.windchip .wc-src:empty{display:none}
+.windchip .wc-src{font-style:italic;opacity:.85}
 .windchip.strong{border-color:var(--accent)}
 body.playing .windchip{margin-top:54px}
 @media (pointer:coarse) and (max-height:520px){ .windchip{padding:4px 8px} .windchip small.wc-gust{display:none} }

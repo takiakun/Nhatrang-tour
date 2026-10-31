@@ -10,14 +10,16 @@ import { LIGHTNING_LEN, lightningFlash, lightningGap, rainBoxScale, rainCount, r
 // Chế độ "Giờ thật": vị trí mặt trời tính theo giờ hiện tại ở Nha Trang (công thức thiên văn rút gọn của NOAA),
 // từ đó chọn sáng / hoàng hôn / đêm và hướng nắng, bóng đổ. Thời tiết lấy từ Open-Meteo (miễn phí, không cần khoá):
 // mây, mưa, gió. Không tải được (ví dụ khi đăng làm Claude artifact, mạng bị chặn) thì trời quang, không có lỗi.
-ST.WX = { real:true, ok:false, cloud:0.3, rain:0, wind:3, windDeg:null, gust:null, temp:null, code:null, rainOv:null, lightning:true, k:{ cloud:0.3, rain:0 }, next:0, sunEl:45, sunAz:120 };
+ST.WX = { real:true, ok:false, cloud:0.3, rain:0, wind:3, windDeg:null, gust:null, temp:null, code:null, failed:false, at:null, rainOv:null, lightning:true, k:{ cloud:0.3, rain:0 }, next:0, sunEl:45, sunAz:120 };
 var WX_LAT = 12.24, WX_LON = 109.19;
 // chế độ thời tiết người dùng chọn: 'real' theo Open-Meteo, 'sun' trời nắng, 'rain' mưa (lưu trong localStorage)
 var WX_MODES = ['real', 'sun', 'rain'], WX_MODE_NAMES = { real:'Thời tiết thật', sun:'Trời nắng', rain:'Trời mưa' };
-ST.WX.mode = 'real'; try { var _wm = localStorage.getItem('nt-wx'); if (WX_MODES.indexOf(_wm) >= 0) ST.WX.mode = _wm; } catch (e){}
-function setWxMode(m){ ST.WX.mode = m; try { localStorage.setItem('nt-wx', m); } catch (e){} syncWxBtn(); }
-function syncWxBtn(){ var t = document.getElementById('btnWxText'), b = document.getElementById('btnWx'); if (!t) return; t.textContent = WX_MODE_NAMES[ST.WX.mode];
-  if (b) b.setAttribute('aria-label', 'Đổi thời tiết, hiện: ' + WX_MODE_NAMES[ST.WX.mode]); }
+// Luôn mở lên ở "Thời tiết thật": nắng và mưa chỉ là chế độ thử trong phiên, không lưu (trước đây lưu nên mở lại vẫn mưa dù trời thật không mưa)
+ST.WX.mode = 'real'; try { localStorage.removeItem('nt-wx'); } catch (e){}
+function setWxMode(m){ ST.WX.mode = m; syncWxBtn(); }
+function syncWxBtn(){ var t = document.getElementById('btnWxText'), b = document.getElementById('btnWx'); if (t) t.textContent = WX_MODE_NAMES[ST.WX.mode];
+  if (b) b.setAttribute('aria-label', 'Đổi thời tiết, hiện: ' + WX_MODE_NAMES[ST.WX.mode]);
+  syncWeatherChip(); }
 
 // độ cao (el) và phương vị (az, tính từ Bắc theo chiều kim đồng hồ) của mặt trời, đơn vị độ
 function sunPos(date){
@@ -38,19 +40,25 @@ function realSunDir(){ if (!ST.WX.real || ST.WX.sunEl < -2) return; var e = Math
   sunDir.lerp(v, k).normalize(); }
 
 var WX_NAMES = { 0:'Trời quang', 1:'Ít mây', 2:'Mây rải rác', 3:'Nhiều mây', 45:'Sương mù', 48:'Sương mù', 51:'Mưa phùn', 53:'Mưa phùn', 55:'Mưa phùn', 61:'Mưa nhỏ', 63:'Mưa vừa', 65:'Mưa to',
-  80:'Mưa rào', 81:'Mưa rào', 82:'Mưa rào to', 95:'Dông', 96:'Dông', 99:'Dông' };
+  56:'Mưa phùn lạnh', 57:'Mưa phùn lạnh', 66:'Mưa lạnh', 67:'Mưa lạnh', 80:'Mưa rào', 81:'Mưa rào', 82:'Mưa rào to', 95:'Dông', 96:'Dông', 99:'Dông' };
 function fetchWeather(){
   if (!window.fetch) return;
   var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + WX_LAT + '&longitude=' + WX_LON + '&current=temperature_2m,cloud_cover,precipitation,rain,showers,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code&timezone=Asia%2FHo_Chi_Minh';
-  fetch(url).then(function(r){ return r.ok ? r.json() : null; }).then(function(j){ var c = j && j.current; if (!c) return;
-    ST.WX.ok = true; ST.WX.cloud = clamp((c.cloud_cover || 0) / 100, 0, 1); ST.WX.wind = c.wind_speed_10m || 0; ST.WX.windDeg = c.wind_direction_10m == null ? null : c.wind_direction_10m; ST.WX.temp = c.temperature_2m; ST.WX.code = c.weather_code;
+  var fail = function(){ ST.WX.failed = true; syncWeatherChip(); clearTimeout(wxRetry); wxRetry = setTimeout(fetchWeather, 60 * 1000); };   // thất bại (hết lượt, mất mạng): thử lại sau 1 phút thay vì đợi 15 phút
+  fetch(url).then(function(r){ return r.ok ? r.json() : null; }).then(function(j){ var c = j && j.current; if (!c){ fail(); return; }
+    ST.WX.ok = true; ST.WX.failed = false; ST.WX.at = new Date(); ST.WX.cloud = clamp((c.cloud_cover || 0) / 100, 0, 1); ST.WX.wind = c.wind_speed_10m || 0; ST.WX.windDeg = c.wind_direction_10m == null ? null : c.wind_direction_10m; ST.WX.temp = c.temperature_2m; ST.WX.code = c.weather_code;
     ST.WX.gust = c.wind_gusts_10m == null ? null : c.wind_gusts_10m;
     ST.WX.rain = rainFromWeather(Math.max(c.precipitation || 0, c.rain || 0, c.showers || 0), ST.WX.code);   // mm/h → 0..1, có sàn theo weather_code (weather-math.js)
-    syncWeatherChip(); }).catch(function(){});
+    syncWeatherChip(); }).catch(fail);
 }
-function syncWeatherChip(){ var el = document.getElementById('wx'); if (!el) return;
-  if (!ST.WX.ok){ el.hidden = true; return; } el.hidden = false;
-  el.textContent = (ST.WX.temp != null ? Math.round(ST.WX.temp) + '°C · ' : '') + (WX_NAMES[ST.WX.code] || (ST.WX.cloud > 0.6 ? 'Nhiều mây' : 'Trời đẹp')); }   // gió có chip riêng (#windchip, theo OC) nên không lặp ở đây
+var wxRetry = 0;
+// Dòng thời tiết ở thẻ tên: ghi rõ đang dùng dữ liệu nào (thật, mô phỏng, hay ước lượng khi không tải được)
+function syncWeatherChip(){ var el = document.getElementById('wx'); if (!el) return; var W = ST.WX, txt = '';
+  if (W.mode !== 'real') txt = 'Mô phỏng: ' + WX_MODE_NAMES[W.mode].toLowerCase();
+  else if (W.ok){ var hh = W.at ? ('0' + W.at.getHours()).slice(-2) + ':' + ('0' + W.at.getMinutes()).slice(-2) : '';
+    txt = (W.temp != null ? Math.round(W.temp) + '°C · ' : '') + (WX_NAMES[W.code] || (W.cloud > 0.6 ? 'Nhiều mây' : 'Trời đẹp')) + ' · gió ' + Math.round(W.wind) + (W.gust != null && W.gust > W.wind * 1.1 + 1 ? ' giật ' + Math.round(W.gust) : '') + ' km/h' + (hh ? ' · lúc ' + hh : ''); }
+  else if (W.failed) txt = 'Chưa tải được thời tiết (ước lượng)';
+  el.hidden = !txt; el.textContent = txt; }
 
 /* ---------- mưa 3D ---------- */
 // Vệt mưa nằm trong cảnh: InstancedBufferGeometry, mỗi vệt là một quad quay về camera, kéo dài theo vận tốc tương đối (mưa − camera). Mọi chuyển động nằm trong
@@ -128,7 +136,11 @@ function updateLightning(dt, k){
 ST.strike = function(){ LN.t = 0; LN.next = 20; thunder(0.4, 0.8); };   // thử: __nt.strike()
 
 function initWeather(){ buildRain(); syncWxBtn();
-  try { var rq = parseFloat(new URLSearchParams(location.search).get('rain')); if (isFinite(rq)) ST.WX.rainOv = clamp(rq, 0, 1); } catch (e){}   // ?rain=<0..1> ép cường độ mưa (thử, chụp ảnh) var b = document.getElementById('btnWx'); if (b) b.addEventListener('click', function(){ setWxMode(WX_MODES[(WX_MODES.indexOf(ST.WX.mode) + 1) % WX_MODES.length]); });
+  // ?rain=<0..1> ép cường độ mưa (thử, chụp ảnh)
+  try { var rq = parseFloat(new URLSearchParams(location.search).get('rain')); if (isFinite(rq)) ST.WX.rainOv = clamp(rq, 0, 1); } catch (e){}
+  // nút đổi thời tiết trong menu: thật → nắng → mưa → thật (đặt riêng một dòng, không kèm chú thích: một chú thích cuối dòng từng nuốt mất dòng này)
+  var b = document.getElementById('btnWx');
+  if (b) b.addEventListener('click', function(){ setWxMode(WX_MODES[(WX_MODES.indexOf(ST.WX.mode) + 1) % WX_MODES.length]); });
   fetchWeather(); setInterval(fetchWeather, 15 * 60 * 1000); }
 // Gọi ở cuối applyTod(): chỉnh ánh sáng theo mây/mưa và hướng nắng thật (applyTod luôn đặt lại giá trị gốc nên không bị cộng dồn)
 function weatherLight(){ var k = ST.WX.k, dim = clamp(k.cloud * 0.35 + k.rain * 0.45, 0, 0.75);

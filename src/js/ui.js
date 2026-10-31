@@ -372,11 +372,13 @@ function updateLocate(dist, ts){ if (!LOC.marker || !LOC.marker.visible) return;
 /* ---------- chip gió: mũi tên (hướng gió thổi tới so với màn hình), km/h, cấp Beaufort, giật; cập nhật mỗi giây từ OC, kể cả khi lái ---------- */
 var windEl = null, windT = 0, windAng = 999;
 function updateWindChip(dt){
-  if (!windEl){ windEl = document.getElementById('windchip'); if (!windEl) return; windEl.arrow = document.getElementById('windArrow'); windEl.kmh = document.getElementById('windKmh'); windEl.bf = document.getElementById('windBf'); windEl.gust = document.getElementById('windGust'); }
+  if (!windEl){ windEl = document.getElementById('windchip'); if (!windEl) return; windEl.arrow = document.getElementById('windArrow'); windEl.kmh = document.getElementById('windKmh'); windEl.bf = document.getElementById('windBf'); windEl.gust = document.getElementById('windGust'); windEl.src = document.getElementById('windSrc'); }
   windT -= dt;
   if (windT <= 0){ windT = 1; var W = windState(), gp = Math.round(OC.kmh * (1 + OC.gustR)); windEl.hidden = false;
     windEl.kmh.textContent = Math.round(W.kmh); windEl.bf.textContent = 'cấp ' + W.bf; windEl.gust.textContent = gp > W.kmh * 1.12 + 2 ? 'giật ' + gp : ''; windEl.classList.toggle('strong', W.bf >= 6);
-    windEl.setAttribute('aria-label', 'Gió ' + Math.round(W.kmh) + ' km/h, cấp ' + W.bf + (windEl.gust.textContent ? ', ' + windEl.gust.textContent : '')); }
+    // nguồn số liệu: chỉ "thật" khi đang ở chế độ Thời tiết thật và đã tải được Open-Meteo; còn lại ghi rõ để khỏi tưởng là gió thật
+    var src = ST.WX.mode !== 'real' ? 'mô phỏng' : (ST.WX.ok ? '' : 'ước lượng'); if (windEl.src) windEl.src.textContent = src;
+    windEl.setAttribute('aria-label', 'Gió ' + Math.round(W.kmh) + ' km/h, cấp ' + W.bf + (windEl.gust.textContent ? ', ' + windEl.gust.textContent : '') + (src ? ' (' + src + ')' : '')); }
   // mũi tên: góc theo chiều kim đồng hồ từ "lên trên màn hình" (hướng nhìn của camera trên mặt phẳng) tới hướng gió thổi tới
   var az = ST.controls.getAzimuthalAngle(), fx = -Math.sin(az), fz = -Math.cos(az), W2 = windState(), ang = Math.atan2(W2.dx * -fz + W2.dz * fx, W2.dx * fx + W2.dz * fz) * 180 / Math.PI;
   if (Math.abs(ang - windAng) > 1.5 && windEl.arrow){ windAng = ang; windEl.arrow.style.transform = 'rotate(' + ang.toFixed(0) + 'deg)'; } }
