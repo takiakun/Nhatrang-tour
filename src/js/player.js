@@ -38,7 +38,8 @@ function uvInto(geo, r, faces){ var uv = geo.attributes.uv;
   for (var i = 0; i < uv.count; i++){ var rr = r; if (faces){ var f = Math.floor(i / 4); rr = faces[f] || r; } uv.setXY(i, rr[0] + uv.getX(i) * (rr[2] - rr[0]), rr[1] + uv.getY(i) * (rr[3] - rr[1])); }
   uv.needsUpdate = true; return geo; }
 
-var PL = null; var PLAY = { on:false }; ST.keys = {}; var joy = { x:0, y:0, on:false }; ST.boostBtn = false;
+var PL = null; var PLAY = { on:false, az0:0 };   // az0: góc phương vị camera mà joystick đi bộ tính theo (đứng yên khi đang xoay góc nhìn)
+ ST.keys = {}; var joy = { x:0, y:0, on:false }; ST.boostBtn = false;
 var COL = { map:new Map(), obbs:[], circ:[], stamp:0 }, DECK = new Map();
 function ckey(ix, iz){ return (ix + 2000) * 5000 + (iz + 2000); }
 function colAddOBB(x, z, w, d, r, top){ var i = COL.obbs.length; COL.obbs.push({ x:x, z:z, hw:w / 2, hd:d / 2, c:Math.cos(r), s:Math.sin(r), m:0, top:top == null ? 1e9 : top });   // top: độ cao đỉnh (camera đi qua phía trên được)
@@ -246,7 +247,9 @@ function updatePlayer(dt){
     C.legs.forEach(function(l, i){ l.rotation.set(-1.05, 0, (i ? -1 : 1) * 0.14); }); C.arms.forEach(function(a, i){ a.rotation.set(-1.25, 0, (i ? -1 : 1) * -0.22); });
     C.head.rotation.set(-0.1, PL.steer * 0.3, 0);
   } else {
-    var th = ST.controls.getAzimuthalAngle(), fx = -Math.sin(th), fz = -Math.cos(th), rx = Math.cos(th), rz = -Math.sin(th);
+    // hướng joystick tính theo az0: khi đang kéo xoay góc nhìn nó đứng yên (đường đi không cong theo tay xoay), nhả tay thì bám dần góc thật trong ~0,4 s
+    var azL = ST.controls.getAzimuthalAngle(); if (!PLAY.dragging) PLAY.az0 += Math.atan2(Math.sin(azL - PLAY.az0), Math.cos(azL - PLAY.az0)) * Math.min(1, dt * 8);
+    var th = PLAY.az0, fx = -Math.sin(th), fz = -Math.cos(th), rx = Math.cos(th), rz = -Math.sin(th);
     var mx = fx * inp.f + rx * inp.s, mz = fz * inp.f + rz * inp.s, ml = Math.hypot(mx, mz);
     var swim = PL.mode === 'swim', spd = KV * (swim ? (inp.run ? 2.8 : 1.2) : (inp.run ? 1.1 : 0.5));   // đi bộ, chạy luôn chậm hơn xe máy (1.6 / 2.4)
     var tgt = ml > 0.05 ? spd * Math.min(1, ml) : 0; PL.speed += (tgt - PL.speed) * Math.min(1, dt * 8);
@@ -276,9 +279,11 @@ function updatePlayer(dt){
 function followCamera(dt, dragging){
   var tg = ST.controls.target, want = new THREE.Vector3(PL.x, PL.y + 0.09 * KS, PL.z), d = want.clone().sub(tg), k = 1 - Math.exp(-dt * 12);
   d.multiplyScalar(k); tg.add(d); camera.position.add(d);
-  if (PL.mode === 'bike' && Math.abs(PL.bike.speed) > 0.25 * KV && !dragging && performance.now() / 1000 - PLAY.lastDrag > 1.2){
-    var off = camera.position.clone().sub(tg), r = Math.hypot(off.x, off.z), th = Math.atan2(off.x, off.z), wantTh = PL.bike.yaw + Math.PI, dth = Math.atan2(Math.sin(wantTh - th), Math.cos(wantTh - th));
-    th += dth * Math.min(1, dt * 1.6); camera.position.x = tg.x + Math.sin(th) * r; camera.position.z = tg.z + Math.cos(th) * r; }
+  // tự quay về sau xe: đợi 2 s sau khi nhả tay, tăng dần trong 0,6 s (không giật), và bỏ qua khi người chơi đang nhìn hẳn sang hướng khác (> ~100°)
+  var idle = performance.now() / 1000 - PLAY.lastDrag - 2.0;
+  if (PL.mode === 'bike' && Math.abs(PL.bike.speed) > 0.25 * KV && !dragging && idle > 0){
+    var off = camera.position.clone().sub(tg), r = Math.hypot(off.x, off.z), th = Math.atan2(off.x, off.z), wantTh = PL.bike.yaw + Math.PI, dth = Math.atan2(Math.sin(wantTh - th), Math.cos(wantTh - th)), ramp = Math.min(1, idle / 0.6);
+    if (Math.abs(dth) < 1.75){ th += dth * Math.min(1, dt * 1.6 * ramp * ramp * (3 - 2 * ramp)); camera.position.x = tg.x + Math.sin(th) * r; camera.position.z = tg.z + Math.cos(th) * r; } }
 }
 function teleportTo(L){ if (!PL) return; var c = L.anchor, best = null;
   for (var r = 0.8; r < 14 && !best; r += 0.6) for (var a = 0; a < 16; a++){ var x = c.x + Math.cos(a / 16 * 6.283) * r, z = c.z + Math.sin(a / 16 * 6.283) * r, g = groundAt(x, z);

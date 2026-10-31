@@ -513,12 +513,17 @@ function buildCity(B){
     d.position.set(it.x, it.y, it.z); d.rotation.y = it.r; d.scale.set(it.w, it.h, it.d); c.set(it.c); }, { roof:function(it){ return '#7fb08a'; } }); });
   var bx = new THREE.BoxGeometry(1, 1, 1); bx.translate(0, 0.5, 0);
   // Mặt tiền nhà ống: bảng hiệu, mái hiên di động (bạt) che tầng trệt, "tum" cầu thang và mái tôn trên sân thượng.
-  function front(d, it, out){ d.position.set(it.x, it.y, it.z); d.rotation.y = it.r + (it.fc > 0 ? 0 : Math.PI); d.translateZ(it.d / 2 + out); }
+  // it.y nằm dưới đất 0,02 (ok() trong geo.js trừ sẵn cho chân nhà không hở); phụ kiện mặt tiền neo vào đất thật ở chân tường phía trước (lô dốc thì tường trước cao hơn it.y)
+  function front(d, it, out){ d.position.set(it.x, it.y, it.z); d.rotation.y = it.r + (it.fc > 0 ? 0 : Math.PI); d.translateZ(it.d / 2 + out); d.position.y = Math.max(it.y + 0.02, ST.G.hAt(d.position.x, d.position.z)); }
+  var PH = 0.054;   // chiều cao người chơi (KS = 0,35 trong player.js); các phụ kiện thấp tính theo người, không theo hằng tuyệt đối
   var SIGN_C = ['#d7263d','#f4b400','#1b6fd1','#1f9d55','#e8590c','#ffffff','#c2185b','#00838f'], AWN_C = ['#e03131','#1c7ed6','#2f9e44','#f08c00','#5f3dc4','#0b7285'];
-  var shop = B.tubes.filter(function(t){ return ih(t.x * 41, t.z * 23) < 0.72; });
-  instChunks(bx, mat('#ffffff', { roughness:0.6 }), shop, function(d, it, c){ front(d, it, 0.006); d.position.y += FLOOR * 0.78; d.scale.set(it.w * 0.86, FLOOR * 0.3, 0.012); c.set(SIGN_C[(ih(it.x * 7, it.z * 5) * SIGN_C.length) | 0]); }, { cast:false });
+  var shop = B.tubes.filter(function(t){ return t.w < 0.32 && ih(t.x * 41, t.z * 23) < 0.72; });   // nhà quá rộng (> 16 m) không gắn biển, mái hiên
+  instChunks(bx, mat('#ffffff', { roughness:0.6 }), shop, function(d, it, c){ front(d, it, 0.006); d.position.y += FLOOR * 0.87; d.scale.set(Math.min(it.w * 0.86, 0.22), FLOOR * 0.3, 0.012); c.set(SIGN_C[(ih(it.x * 7, it.z * 5) * SIGN_C.length) | 0]); }, { cast:false });
+  // mái hiên (bạt): mép trong cao 1,45 người, vươn 0,045, nghiêng 0,24 nên mép ngoài vẫn cao hơn đầu người; dải rủ ở mép ngoài cho đọc ra là mái bạt, không phải tấm ván
   var awnGeo = new THREE.BoxGeometry(1, 1, 1); awnGeo.translate(0, 0, 0.5);
-  instChunks(awnGeo, mat('#ffffff', { roughness:0.85 }), shop.filter(function(t){ return ih(t.x * 13, t.z * 37) < 0.6; }), function(d, it, c){ front(d, it, 0); d.position.y += FLOOR * 0.62; d.rotateX(0.38); d.scale.set(it.w * 0.94, 0.006, 0.075); c.set(AWN_C[(ih(it.x * 3, it.z * 11) * AWN_C.length) | 0]); });
+  var AWN_Y = PH * 1.45, AWN_P = 0.045, AWN_T = 0.24, awnShops = shop.filter(function(t){ return ih(t.x * 13, t.z * 37) < 0.6; }), awnW = function(it){ return Math.min(it.w * 0.92, 0.26); }, awnC = function(it, c){ c.set(AWN_C[(ih(it.x * 3, it.z * 11) * AWN_C.length) | 0]); };
+  instChunks(awnGeo, mat('#ffffff', { roughness:0.85 }), awnShops, function(d, it, c){ front(d, it, 0); d.position.y += AWN_Y; d.rotateX(AWN_T); d.scale.set(awnW(it), 0.004, AWN_P); awnC(it, c); });
+  instChunks(bx, mat('#ffffff', { roughness:0.85 }), awnShops, function(d, it, c){ front(d, it, AWN_P * Math.cos(AWN_T)); d.position.y += AWN_Y - AWN_P * Math.sin(AWN_T) - 0.012; d.scale.set(awnW(it), 0.012, 0.004); awnC(it, c); }, { cast:false });
   // Dù hàng rong trên vỉa hè trước một số cửa hàng (mô hình Kenney, tán đổi màu qua aRoof)
   var DU_C = ['#e03131','#1c7ed6','#f08c00','#2f9e44','#ffffff'], vend = shop.filter(function(t){ return ih(t.x * 59, t.z * 43) < 0.12; });
   ['parasol-a','parasol-b'].forEach(function(id, k){ instChunks(modelGeo(id), kitMat(), vend.filter(function(t){ return (ih(t.x * 7, t.z * 71) < 0.5) === (k === 0); }), function(d, it, c){
@@ -526,7 +531,7 @@ function buildCity(B){
   var tum = B.tubes.filter(function(t){ return t.f >= 3 && ih(t.x * 17, t.z * 29) < 0.45; });
   instChunks(bx, mat('#ffffff'), tum, function(d, it, c){ d.position.set(it.x, it.y + it.h, it.z); d.rotation.y = it.r + (it.fc > 0 ? 0 : Math.PI); d.translateZ(-it.d * 0.22); d.scale.set(it.w * 0.62, FLOOR * 0.72, it.d * 0.34); c.set(it.c); });
   var tole = new THREE.BoxGeometry(1, 1, 1); tole.translate(0, 0.5, 0);
-  instChunks(tole, mat('#ffffff', { roughness:0.5, metalness:0.25 }), tum, function(d, it, c){ d.position.set(it.x, it.y + it.h + FLOOR * 0.72, it.z); d.rotation.y = it.r + (it.fc > 0 ? 0 : Math.PI); d.translateZ(-it.d * 0.22); d.rotateX(0.12); d.scale.set(it.w * 0.7, 0.008, it.d * 0.4); c.set(['#c0504d','#4f81bd','#9aa3a8','#c0504d'][(ih(it.x * 5, it.z * 3) * 4) | 0]); });
+  instChunks(tole, mat('#ffffff', { roughness:0.5, metalness:0.25 }), tum, function(d, it, c){ d.position.set(it.x, it.y + it.h + FLOOR * 0.72, it.z); d.rotation.y = it.r + (it.fc > 0 ? 0 : Math.PI); d.translateZ(-it.d * 0.22); d.rotateX(0.12); d.position.y += it.d * 0.4 * 0.5 * Math.sin(0.12); d.scale.set(it.w * 0.7, 0.008, it.d * 0.4); c.set(['#c0504d','#4f81bd','#9aa3a8','#c0504d'][(ih(it.x * 5, it.z * 3) * 4) | 0]); });
   instChunks(bx, mat('#9aa3a8'), B.towers, function(d, it){ d.position.set(it.x, it.y + it.h, it.z); d.rotation.y = it.r; d.scale.set(it.w * 0.55, 0.12, it.d * 0.45); });
   instChunks(bx, mat('#54c6e0', { roughness:0.2 }), B.towers.filter(function(t){ return t.pool; }), function(d, it){ d.position.set(it.x, it.y + it.h, it.z); d.rotation.y = it.r; d.translateZ(it.d * 0.22); d.scale.set(it.w * 0.6, 0.03, it.d * 0.3); }, { cast:false });
   instChunks(tankGeo, mat('#e3e7ec', { metalness:0.6, roughness:0.3 }), B.tanks, function(d, it){ d.position.set(it.x, it.y, it.z); });

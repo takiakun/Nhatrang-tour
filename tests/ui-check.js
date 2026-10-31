@@ -43,6 +43,13 @@ const { chromium } = require('playwright'); const { mount, DIST_TEST } = require
       return { brand:vis('.brand'), locate:vis('#btnLocate'), compass:vis('#compass'), camctl:vis('.camctl'), mini:vis('#minimap'), info:vis('#btnInfo'), joy:vis('#joy'), speedo:vis('#speedo'), exit:document.querySelector('#btnPlay span').textContent,
         colors:cols.size, center, corner, topDiff:topN.join() !== topS.join(), orange, attrib:!pop.hidden && /OpenStreetMap/.test(pop.textContent) && /Copernicus/.test(pop.textContent), mid:mid.tagName,
         overlap: (() => { const a = mm.getBoundingClientRect(), t = document.querySelector('.tool-row').getBoundingClientRect(); return !(a.right <= t.left || t.right <= a.left || a.bottom <= t.top || t.bottom <= a.top); })(), scrollW:document.documentElement.scrollWidth }; });
+    // joystick và nút không được để pointermove/pointerup nổi bọt lên document (OrbitControls nghe ở đó và sẽ xoay camera theo ngón chạm joystick)
+    const leak = await page.evaluate(() => { const seen = {}; const h = e => { seen[e.target.id || e.target.tagName] = (seen[e.target.id || e.target.tagName] || 0) + 1; }; document.addEventListener('pointermove', h); document.addEventListener('pointerup', h);
+      const fire = (id, type) => document.getElementById(id).dispatchEvent(new PointerEvent(type, { bubbles:true, pointerId:7, pointerType:'touch', clientX:60, clientY:300 }));
+      ['joy', 'btnHorn', 'btnCam', 'minimap'].forEach(id => { fire(id, 'pointermove'); fire(id, 'pointerup'); }); window.__nt.THREE && document.querySelector('canvas').dispatchEvent(new PointerEvent('pointermove', { bubbles:true, pointerId:9 }));
+      document.removeEventListener('pointermove', h); document.removeEventListener('pointerup', h); return seen; });
+    p.leak = leak; const okLeak = Object.keys(leak).every(k => k === 'CANVAS');
+    if (!okLeak){ console.log('FAIL rò sự kiện con trỏ', JSON.stringify(leak)); fail++; }
     const okPlay = !p.brand && !p.locate && !p.compass && !p.camctl && p.mini && p.info && p.joy && p.exit === '✕ Thoát' && p.colors > 5 && p.center[0] > 240 && p.center[1] > 90 && p.center[1] < 125 && p.corner[3] === 0
       && p.topDiff && p.orange > 20 && p.attrib && p.mid === 'CANVAS' && !p.overlap && p.scrollW <= vp.w;
     console.log((okPlay ? 'OK  ' : 'FAIL') + ' lái ' + vp.name, JSON.stringify(p)); if (!okPlay) fail++;
