@@ -23,6 +23,10 @@ const { chromium } = require('playwright'); const { mount, DIST_TEST } = require
     if (vp.mobile){ await page.tap('#btnBoost'); const on = await page.getAttribute('#btnBoost', 'aria-pressed'); await page.tap('#btnBoost'); const off = await page.getAttribute('#btnBoost', 'aria-pressed');
       if (on !== 'true' || off !== 'false') errs.push('nút Tăng ga không bật/tắt được: ' + on + '/' + off); }
     const pl = await page.evaluate(() => { const P = window.__nt.PL; return P.mode + ' @ ' + P.x.toFixed(1) + ',' + P.z.toFixed(1); });
+    // gió mạnh, mưa to, sét: chạy vài khung không lỗi; chip gió đúng chữ; mưa và gió đặt được rồi bỏ ép
+    const wx = await page.evaluate(async () => { const n = window.__nt; n.setWind(60, 45, 90); n.setRain(1); n.strike(); await new Promise(r => setTimeout(r, 700));
+      const chip = n.windChip(), k = n.wx.k.rain, ws = n.waves.windState(); n.setRain(null); n.setWx('sun'); n.setWind(null); return { chip, rain:+k.toFixed(2), bf:ws.bf, windK:+ws.windK.toFixed(2) }; });
+    r.wx = wx; if (!/60/.test(wx.chip) || !/km\/h/.test(wx.chip) || wx.rain < 0.99 || wx.bf !== 7) errs.push('gió/mưa không như đặt: ' + JSON.stringify(wx));
     // âm thanh: đã bật sau thao tác bấm nút, có tín hiệu ra ở master (đo RMS qua AnalyserNode), bấm còi không lỗi
     if (!vp.mobile) await page.keyboard.press('KeyH');
     const snd = await page.evaluate(async () => { const A = window.__nt.audio; if (!A.ctx) return { on:false };

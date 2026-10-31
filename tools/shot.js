@@ -1,6 +1,6 @@
 // Chụp ảnh trang thật (Chromium + WebGL qua SwiftShader) ở các cảnh cố định, để so trước/sau khi đổi đồ hoạ, nâng three, làm biển.
 // Dùng:  node tools/shot.js <thư mục ra> [--prefix tên] [--views a,b,c] [--size 1100x720] [--mobile] [--dist dist]
-//                         [--legacy-three <thư mục three r147>]  [--wind 20 --wdir 45]
+//                         [--legacy-three <thư mục three r147>]  [--wind 20 --wdir 45 --gust 45 --rain 0.8] [--storm]
 // Trang được phục vụ từ thư mục --dist (mặc định dist/) qua http://local/, mọi mạng khác bị chặn (thời tiết thật không tải được, trời quang).
 // --legacy-three: bản cũ nạp three r147 từ jsDelivr; trỏ vào thư mục có three.min.js, OrbitControls.js, GLTFLoader.js để trả thay mạng.
 // Cần Playwright (cloud: NODE_PATH=/opt/node-tools/node_modules). Viewport ≥ 1100×720 mới bật hậu kỳ (dưới đó là LITE).
@@ -30,6 +30,8 @@ const VIEWS = {
   playmini:  { play:{ r:0.53, phi:1.1, mount:true, nav:'ponagar' }, tod:0, wx:'sun', frames:20 },   // mini map + giao diện gọn (chụp thêm với --mobile, --size 932x430)
   playminin: { play:{ r:0.53, phi:1.1, mount:true }, tod:2, wx:'sun', frames:20 },
   playnight: { play:{ r:0.53, phi:1.1, mount:true }, tod:2, wx:'sun', frames:20 },
+  playrain:  { play:{ r:0.53, phi:1.1, mount:true }, tod:0, wx:'rain', frames:20 },   // lái xe trong mưa: vệt mưa 3D, mặt đường ướt, sương
+  stormsea:  { ll:[12.2250, 109.2150], r:14, phi:1.2, th:1.6, tod:0, wx:'rain', frames:6 },   // biển mưa giông (chụp thêm với --wind 60 --rain 1)
   nightmids: { mid:60, r:3.5, phi:1.15, th:0.6, tod:2, wx:'sun', frames:16 },   // chung cư giữa khối phố (B.mids[60]) ban đêm: cửa sổ sáng, không còn cam phẳng
   duskmids:  { mid:60, r:3.5, phi:1.15, th:0.6, tod:1, wx:'sun', frames:16 },
   nightvilla:{ villaNear:[12.2475, 109.1915], r:3.5, phi:1.15, th:0.6, tod:2, wx:'sun', frames:16 },
@@ -62,7 +64,7 @@ const MIME = { '.html':'text/html', '.js':'application/javascript', '.css':'text
     if (u.startsWith('http://local/')){ let p = decodeURIComponent(u.slice('http://local/'.length).split('?')[0].split('#')[0]) || 'index.html'; const f = path.join(DIST, p);
       if (f.startsWith(DIST) && fs.existsSync(f) && fs.statSync(f).isFile()) return r.fulfill({ contentType:MIME[path.extname(f)] || 'application/octet-stream', body:fs.readFileSync(f) }); }
     return r.abort(); });
-  const q = []; if (arg('wind', null)) q.push('wind=' + arg('wind')); if (arg('wdir', null)) q.push('wdir=' + arg('wdir'));
+  const q = []; if (arg('wind', null)) q.push('wind=' + arg('wind')); if (arg('wdir', null)) q.push('wdir=' + arg('wdir')); if (arg('gust', null)) q.push('gust=' + arg('gust')); if (arg('rain', null)) q.push('rain=' + arg('rain'));
   await page.goto('http://local/index.html' + (q.length ? '?' + q.join('&') : ''));
   await page.waitForFunction(() => window.__nt || !document.getElementById('err').hidden, null, { timeout:300000 });
   if (await page.evaluate(() => !window.__nt)) throw new Error('Trang báo lỗi: ' + await page.evaluate(() => document.getElementById('err').textContent));
@@ -70,7 +72,7 @@ const MIME = { '.html':'text/html', '.js':'application/javascript', '.css':'text
   // chờ n khung hình thật (mỗi khung trong SwiftShader mất vài giây) để bóng, nội suy, sương mù ổn định
   const frames = async n => { const f0 = await page.evaluate(() => __nt.frames()); await page.waitForFunction(([f0, n]) => __nt.frames() >= f0 + n, [f0, n], { timeout:300000, polling:200 }); };
   // bộ điều tốc hạ chất lượng (tắt hậu kỳ…) khi khung hình chậm; trong SwiftShader luôn chậm nên khoá lại để ảnh so sánh được
-  await page.evaluate(() => { __nt.controls.autoRotate = false; if (__nt.GOV) __nt.GOV.wait = 1e9; });
+  await page.evaluate(storm => { __nt.controls.autoRotate = false; if (__nt.GOV) __nt.GOV.wait = 1e9; if (__nt.setLightning && !storm) __nt.setLightning(false); }, !!arg('storm', false));   // sét làm ảnh lệch: tắt, trừ khi --storm
   for (const name of want){ const v = VIEWS[name]; if (!v){ console.log('bỏ qua cảnh lạ: ' + name); continue; }
     await page.evaluate(([v]) => { __nt.setTod(v.tod); __nt.setWx(v.wx); if (v.home) return __nt.home();
       if (v.play){ __nt.enterPlay(); if (v.play.mount) __nt.toggleMount(); if (v.play.nav) __nt.setNav(v.play.nav); const P = __nt.PL; return __nt.jump(new (__nt.THREE || window.THREE).Vector3(P.x, P.y + 0.0315, P.z), v.play.r, v.play.phi, P.yaw + Math.PI); }
